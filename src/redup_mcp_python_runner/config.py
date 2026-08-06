@@ -2,28 +2,22 @@
 
 from __future__ import annotations
 
-import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_first(*names: str, default: str | None = None) -> str | None:
-    for name in names:
-        value = os.environ.get(name)
-        if value is not None and value.strip() != "":
-            return value
-    return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
 class ServerConfig:
-    """Configuration for the MCP Python runner service."""
+    """Runtime configuration for the MCP Python runner."""
 
     python_version: str = "3.13"
     sandbox_backend: str = "native"  # "native" (bwrap, Linux) | "none"
@@ -32,7 +26,7 @@ class ServerConfig:
     max_output_bytes: int = 102_400  # 100KB
     warm_cache: bool = True
     uv_path: str = "uv"
-    # Network transport (default for service deployment)
+    # Network transport
     transport: str = "http"  # "stdio" | "http" | "streamable-http" | "sse"
     host: str = "0.0.0.0"
     port: int = 8000
@@ -59,39 +53,22 @@ class ServerConfig:
             raise ValueError("path must start with '/'")
 
     @classmethod
-    def from_env(cls, **overrides) -> ServerConfig:
-        """Build config from environment variables (service-friendly defaults)."""
-        data = {
-            "python_version": _env_first("PYTHON_VERSION", default="3.13"),
-            "sandbox_backend": _env_first("SANDBOX_BACKEND", default="native"),
-            "max_timeout": int(_env_first("MAX_TIMEOUT", default="300") or "300"),
-            "default_timeout": int(_env_first("DEFAULT_TIMEOUT", default="30") or "30"),
-            "max_output_bytes": int(
-                _env_first("MAX_OUTPUT_BYTES", default="102400") or "102400"
-            ),
-            "warm_cache": _env_bool("WARM_CACHE", True),
-            "uv_path": _env_first("UV_PATH", default="uv"),
-            "transport": _env_first(
-                "MCP_TRANSPORT", "FASTMCP_TRANSPORT", default="http"
-            ),
-            "host": _env_first(
-                "LISTEN_ADDRESS", "APP_HOST", "FASTMCP_HOST", default="0.0.0.0"
-            ),
-            "port": int(
-                _env_first("MCP_PORT", "APP_PORT", "FASTMCP_PORT", default="8000")
-                or "8000"
-            ),
-            "path": _env_first(
-                "MCP_PATH", "FASTMCP_STREAMABLE_HTTP_PATH", default="/mcp"
-            ),
-            "json_response": _env_bool(
-                "MCP_JSON_RESPONSE",
-                _env_bool("FASTMCP_JSON_RESPONSE", True),
-            ),
-            "stateless_http": _env_bool(
-                "MCP_STATELESS_HTTP",
-                _env_bool("FASTMCP_STATELESS_HTTP", True),
-            ),
-        }
-        data.update(overrides)
-        return cls(**data)
+    def from_servicekit(cls, config: Mapping[str, Any]) -> ServerConfig:
+        """Build from a servicekit YAML dict (`service` + `McpPythonRunner`)."""
+        service = config.get("service") or {}
+        runner = config.get("McpPythonRunner") or {}
+        return cls(
+            python_version=str(runner.get("python_version", "3.13")),
+            sandbox_backend=str(runner.get("sandbox_backend", "none")),
+            max_timeout=int(runner.get("max_timeout", 300)),
+            default_timeout=int(runner.get("default_timeout", 30)),
+            max_output_bytes=int(runner.get("max_output_bytes", 102_400)),
+            warm_cache=_as_bool(runner.get("warm_cache"), True),
+            uv_path=str(runner.get("uv_path", "uv")),
+            transport="streamable-http",
+            host=str(service.get("host", "0.0.0.0")),
+            port=int(service.get("port", 8000)),
+            path=str(service.get("path", "/mcp")),
+            json_response=_as_bool(runner.get("json_response"), True),
+            stateless_http=_as_bool(runner.get("stateless_http"), True),
+        )

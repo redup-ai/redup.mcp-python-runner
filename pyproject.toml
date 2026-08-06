@@ -21,7 +21,11 @@ classifiers = [
     "Topic :: Software Development :: Interpreters",
     "Topic :: Security",
 ]
-dependencies = ["fastmcp>=2.0,<3", "tomli-w>=1.0"]
+dependencies = [
+    "fastmcp>=2.0,<3",
+    "tomli-w>=1.0",
+    "redup-servicekit>=1.4.3,<2",
+]
 
 [project.urls]
 Homepage = "https://github.com/redup-ai/redup.mcp-python-runner/blob/master/README.md"

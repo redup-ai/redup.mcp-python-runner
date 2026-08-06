@@ -9,39 +9,52 @@ inline dependencies ([PEP 723](https://peps.python.org/pep-0723/)) via
 
 Contract: MCP tools `execute_python`, `check_environment`, `validate_script`.
 Endpoint: `POST http://<host>:8000/mcp` (stateless Streamable HTTP, JSON).
+Metrics: `GET http://<host>:9999/metrics` (Prometheus via `redup-servicekit`).
 
 ## Configuration
 
-Image / service defaults (override with env):
+`config/config.yaml`:
 
-```text
-LISTEN_ADDRESS=0.0.0.0
-APP_PORT=8000
-MCP_PATH=/mcp
-MCP_STATELESS_HTTP=true
-MCP_JSON_RESPONSE=true
-SANDBOX_BACKEND=none          # container isolation; or native (bubblewrap)
-PYTHON_VERSION=3.13
-DEFAULT_TIMEOUT=30
-MAX_TIMEOUT=300
-WARM_CACHE=true               # pre-fetch common wheels into uv cache
-UV_CACHE_DIR=/var/cache/uv
+```yaml
+service:
+  console_log_level: INFO
+  host: "0.0.0.0"
+  port: 8000
+  path: /mcp
+  max_workers: 4
+  hpa_max_workers: 2
+
+McpPythonRunner:
+  sandbox_backend: none          # or native (bubblewrap + user namespaces)
+  python_version: "3.13"
+  default_timeout: 30
+  max_timeout: 300
+  max_output_bytes: 102400
+  warm_cache: true
+  uv_path: uv
+  json_response: true
+  stateless_http: true
 ```
 
-`SANDBOX_BACKEND=native` needs bubblewrap and unprivileged user namespaces.
-Without that, keep `none` (typical Docker / Kubernetes).
+Override without editing the file via servicekit env substitution (`section___key`):
 
-CLI mirrors the same options (`--host`, `--port`, `--path`, `--sandbox-backend`,
-`--no-warm-cache`, …). Use `--transport stdio` for desktop MCP clients.
+```bash
+export McpPythonRunner___sandbox_backend=none
+export McpPythonRunner___warm_cache=false
+export service___port=8000
+```
+
+`McpPythonRunner.sandbox_backend=native` needs bubblewrap and unprivileged user
+namespaces. The image defaults to `none` (isolation = container).
 
 ## Run with Docker
 
 ```bash
-docker run --rm -p 8000:8000 \
+docker run --rm -p 8000:8000 -p 9999:9999 \
   redup4ai/redup.mcp-python-runner:0.1.0-3.13-slim
 ```
 
-MCP URL: `http://127.0.0.1:8000/mcp`.
+MCP URL: `http://127.0.0.1:8000/mcp`. Metrics: `http://127.0.0.1:9999/metrics`.
 
 Smoke with the MCP inspector:
 
@@ -65,14 +78,13 @@ Requires Python 3.13+ and [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
 uv sync
-uv run redup-mcp-python-runner --host 127.0.0.1 --port 8000
+uv run python -m redup_mcp_python_runner.service config/config.yaml
 ```
 
-On Linux, optional tighter isolation:
+Desktop MCP clients (stdio, no MonitorServer):
 
 ```bash
-sudo apt-get install -y bubblewrap
-uv run redup-mcp-python-runner --sandbox-backend native --host 127.0.0.1 --port 8000
+uv run redup-mcp-python-runner --transport stdio
 ```
 
 ## Tests

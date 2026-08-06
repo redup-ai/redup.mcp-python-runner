@@ -22,23 +22,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-ENV PYTHONPATH=/app/libs
+ENV PYTHONPATH=/app/libs \
+    UV_CACHE_DIR=/var/cache/uv
+
 COPY --from=builder /app/libs /app/libs
 COPY VERSION /app/VERSION
+COPY config/ /config/
 
 WORKDIR /app
-
-ENV SANDBOX_BACKEND=none \
-    LISTEN_ADDRESS=0.0.0.0 \
-    APP_PORT=8000 \
-    MCP_PATH=/mcp \
-    MCP_STATELESS_HTTP=true \
-    MCP_JSON_RESPONSE=true \
-    UV_CACHE_DIR=/var/cache/uv
 
 RUN mkdir -p /var/cache/uv \
     && find / -xdev \( -perm -4000 -o -perm -2000 \) -type f -exec chmod a-s {} \; || true
 
-EXPOSE 8000
+EXPOSE 8000 9999
 
-CMD ["python", "-m", "redup_mcp_python_runner"]
+CMD ["python", "-m", "redup_mcp_python_runner.service", "/config/config.yaml"]

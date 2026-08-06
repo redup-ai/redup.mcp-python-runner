@@ -1,0 +1,18 @@
+service:
+  console_log_level: INFO
+  host: "0.0.0.0"
+  port: 8000
+  path: /mcp
+  max_workers: 4
+  hpa_max_workers: 2
+
+McpPythonRunner:
+  sandbox_backend: none
+  python_version: "3.13"
+  default_timeout: 30
+  max_timeout: 300
+  max_output_bytes: 102400
+  warm_cache: true
+  uv_path: uv
+  json_response: true
+  stateless_http: true

@@ -14,6 +14,7 @@ from fastmcp import FastMCP
 
 from redup_mcp_python_runner.config import ServerConfig
 from redup_mcp_python_runner.executor import execute
+from redup_mcp_python_runner.metrics import tracked_work
 from redup_mcp_python_runner.output import format_result
 from redup_mcp_python_runner.sandbox import get_sandbox
 from redup_mcp_python_runner.script import build_script, extract_metadata
@@ -115,31 +116,32 @@ def create_server(config: ServerConfig) -> FastMCP:
         pip-style version specifiers like "requests>=2.28" or "pandas" (see PEP 508:
         https://peps.python.org/pep-0508/).
         """
-        # Clamp timeout
-        timeout = max(1, min(timeout_seconds, config.max_timeout))
+        async with tracked_work("execute_python"):
+            # Clamp timeout
+            timeout = max(1, min(timeout_seconds, config.max_timeout))
 
-        # Build script with merged metadata
-        final_script = build_script(
-            script, extra_dependencies=dependencies, python_version=config.python_version
-        )
-
-        # Write to temp file and execute
-        with tempfile.TemporaryDirectory(prefix="mcp-py-") as tmpdir:
-            script_path = Path(tmpdir) / "script.py"
-            script_path.write_text(final_script, encoding="utf-8")
-
-            sandbox = get_sandbox(config.sandbox_backend)
-
-            result = await execute(
-                script_path=script_path,
-                python_version=config.python_version,
-                timeout=timeout,
-                sandbox=sandbox,
-                max_output_bytes=config.max_output_bytes,
-                uv_path=config.uv_path,
+            # Build script with merged metadata
+            final_script = build_script(
+                script, extra_dependencies=dependencies, python_version=config.python_version
             )
 
-        return format_result(result, config.max_output_bytes)
+            # Write to temp file and execute
+            with tempfile.TemporaryDirectory(prefix="mcp-py-") as tmpdir:
+                script_path = Path(tmpdir) / "script.py"
+                script_path.write_text(final_script, encoding="utf-8")
+
+                sandbox = get_sandbox(config.sandbox_backend)
+
+                result = await execute(
+                    script_path=script_path,
+                    python_version=config.python_version,
+                    timeout=timeout,
+                    sandbox=sandbox,
+                    max_output_bytes=config.max_output_bytes,
+                    uv_path=config.uv_path,
+                )
+
+            return format_result(result, config.max_output_bytes)
 
     @mcp.tool
     async def check_environment() -> str:
@@ -148,32 +150,33 @@ def create_server(config: ServerConfig) -> FastMCP:
         Returns information about Python version, uv version, platform,
         sandbox configuration, and cache status.
         """
-        sandbox = get_sandbox(config.sandbox_backend)
+        async with tracked_work("check_environment"):
+            sandbox = get_sandbox(config.sandbox_backend)
 
-        # Get uv version
-        try:
-            result = subprocess.run(
-                [config.uv_path, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            uv_version = result.stdout.strip()
-        except Exception:
-            uv_version = "unknown"
+            # Get uv version
+            try:
+                result = subprocess.run(
+                    [config.uv_path, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                uv_version = result.stdout.strip()
+            except Exception:
+                uv_version = "unknown"
 
-        lines = [
-            f"Python version: {config.python_version}",
-            f"uv: {uv_version}",
-            f"Platform: {platform.system()} {platform.machine()}",
-            f"Sandbox backend: {config.sandbox_backend}",
-            f"Sandbox status: {sandbox.describe()}",
-            f"Default timeout: {config.default_timeout}s",
-            f"Max timeout: {config.max_timeout}s",
-            f"Max output: {config.max_output_bytes} bytes",
-            f"Cache warming: {'enabled' if config.warm_cache else 'disabled'}",
-        ]
-        return "\n".join(lines)
+            lines = [
+                f"Python version: {config.python_version}",
+                f"uv: {uv_version}",
+                f"Platform: {platform.system()} {platform.machine()}",
+                f"Sandbox backend: {config.sandbox_backend}",
+                f"Sandbox status: {sandbox.describe()}",
+                f"Default timeout: {config.default_timeout}s",
+                f"Max timeout: {config.max_timeout}s",
+                f"Max output: {config.max_output_bytes} bytes",
+                f"Cache warming: {'enabled' if config.warm_cache else 'disabled'}",
+            ]
+            return "\n".join(lines)
 
     @mcp.tool
     async def validate_script(
@@ -193,42 +196,43 @@ def create_server(config: ServerConfig) -> FastMCP:
         Returns:
             Validation result with metadata details or error information.
         """
-        issues: list[str] = []
+        async with tracked_work("validate_script"):
+            issues: list[str] = []
 
-        # Try to parse existing metadata
-        try:
-            extract_metadata(script)
-        except Exception as exc:
-            return f"INVALID: {exc}"
+            # Try to parse existing metadata
+            try:
+                extract_metadata(script)
+            except Exception as exc:
+                return f"INVALID: {exc}"
 
-        # Try to build merged script
-        try:
-            merged = build_script(
-                script,
-                extra_dependencies=dependencies,
-                python_version=config.python_version,
-            )
-        except Exception as exc:
-            return f"INVALID: Failed to merge metadata: {exc}"
+            # Try to build merged script
+            try:
+                merged = build_script(
+                    script,
+                    extra_dependencies=dependencies,
+                    python_version=config.python_version,
+                )
+            except Exception as exc:
+                return f"INVALID: Failed to merge metadata: {exc}"
 
-        # Extract final metadata for reporting
-        final_meta = extract_metadata(merged)
+            # Extract final metadata for reporting
+            final_meta = extract_metadata(merged)
 
-        lines = ["VALID"]
-        if final_meta.get("requires-python"):
-            lines.append(f"requires-python: {final_meta['requires-python']}")
-        deps = final_meta.get("dependencies", [])
-        if deps:
-            lines.append(f"dependencies ({len(deps)}):")
-            for dep in deps:
-                lines.append(f"  - {dep}")
-        else:
-            lines.append("dependencies: none")
-        if issues:
-            lines.append("warnings:")
-            for issue in issues:
-                lines.append(f"  - {issue}")
+            lines = ["VALID"]
+            if final_meta.get("requires-python"):
+                lines.append(f"requires-python: {final_meta['requires-python']}")
+            deps = final_meta.get("dependencies", [])
+            if deps:
+                lines.append(f"dependencies ({len(deps)}):")
+                for dep in deps:
+                    lines.append(f"  - {dep}")
+            else:
+                lines.append("dependencies: none")
+            if issues:
+                lines.append("warnings:")
+                for issue in issues:
+                    lines.append(f"  - {issue}")
 
-        return "\n".join(lines)
+            return "\n".join(lines)
 
     return mcp

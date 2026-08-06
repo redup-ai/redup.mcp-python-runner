@@ -1,5 +1,7 @@
 """Tests for server configuration."""
 
+import sys
+
 import pytest
 
 from redup_mcp_python_runner.__main__ import parse_args
@@ -59,11 +61,56 @@ class TestServerConfig:
         assert config.max_output_bytes == 200_000
         assert config.warm_cache is False
 
+    def test_from_servicekit(self):
+        config = ServerConfig.from_servicekit(
+            {
+                "service": {
+                    "host": "127.0.0.1",
+                    "port": 9000,
+                    "path": "/mcp",
+                },
+                "McpPythonRunner": {
+                    "sandbox_backend": "none",
+                    "python_version": "3.13",
+                    "default_timeout": 15,
+                    "max_timeout": 120,
+                    "max_output_bytes": 50_000,
+                    "warm_cache": False,
+                    "json_response": True,
+                    "stateless_http": True,
+                },
+            }
+        )
+        assert config.host == "127.0.0.1"
+        assert config.port == 9000
+        assert config.path == "/mcp"
+        assert config.sandbox_backend == "none"
+        assert config.default_timeout == 15
+        assert config.max_timeout == 120
+        assert config.max_output_bytes == 50_000
+        assert config.warm_cache is False
+        assert config.transport == "streamable-http"
+
+    def test_from_servicekit_string_bools(self):
+        config = ServerConfig.from_servicekit(
+            {
+                "service": {"host": "0.0.0.0", "port": "8000", "path": "/mcp"},
+                "McpPythonRunner": {
+                    "sandbox_backend": "none",
+                    "warm_cache": "false",
+                    "json_response": "true",
+                    "stateless_http": "1",
+                },
+            }
+        )
+        assert config.port == 8000
+        assert config.warm_cache is False
+        assert config.json_response is True
+        assert config.stateless_http is True
+
 
 class TestParseArgs:
     def test_defaults(self):
-        import sys
-
         args = parse_args([])
         assert args.python_version == "3.13"
         expected_backend = "native" if sys.platform == "linux" else "none"
@@ -71,10 +118,9 @@ class TestParseArgs:
         assert args.max_timeout == 300
         assert args.default_timeout == 30
         assert args.max_output_bytes == 102_400
-        assert args.no_warm_cache is not True
-
-        assert args.transport == "http"
-        assert args.host == "0.0.0.0"
+        assert args.no_warm_cache is False
+        assert args.transport == "stdio"
+        assert args.host == "127.0.0.1"
         assert args.port == 8000
         assert args.path == "/mcp"
 
@@ -82,9 +128,9 @@ class TestParseArgs:
         args = parse_args(
             [
                 "--transport",
-                "stdio",
+                "http",
                 "--host",
-                "127.0.0.1",
+                "0.0.0.0",
                 "--port",
                 "9000",
                 "--path",
@@ -102,8 +148,8 @@ class TestParseArgs:
                 "--no-warm-cache",
             ]
         )
-        assert args.transport == "stdio"
-        assert args.host == "127.0.0.1"
+        assert args.transport == "http"
+        assert args.host == "0.0.0.0"
         assert args.port == 9000
         assert args.path == "/mcp/"
         assert args.python_version == "3.14"
