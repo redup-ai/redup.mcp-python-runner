@@ -2,8 +2,8 @@
 
 import pytest
 
-from mcp_python_exec_sandbox.config import ServerConfig
-from mcp_python_exec_sandbox.server import create_server
+from redup_mcp_python_runner.config import ServerConfig
+from redup_mcp_python_runner.server import create_server
 
 
 @pytest.fixture

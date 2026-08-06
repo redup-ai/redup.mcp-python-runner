@@ -1,11 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "mcp-python-exec-sandbox"
-version = "0.1.8"
-description = "MCP server for secure Python script execution with automatic dependency management"
+name = "redup-mcp-python-runner"
+dynamic = ["version"]
+description = "MCP Streamable HTTP service for sandboxed ephemeral Python execution."
+authors = [{ name = "REDUP" }]
 readme = "README.md"
-requires-python = ">=3.13"
 license = "MIT"
-authors = [{ name = "Zhengda Lu" }]
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.13"
 keywords = ["mcp", "sandbox", "python", "execution", "ai", "agent"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -19,22 +24,22 @@ classifiers = [
 dependencies = ["fastmcp>=2.0,<3", "tomli-w>=1.0"]
 
 [project.urls]
-Homepage = "https://github.com/lu-zhengda/mcp-python-exec-sandbox"
-Repository = "https://github.com/lu-zhengda/mcp-python-exec-sandbox"
-Issues = "https://github.com/lu-zhengda/mcp-python-exec-sandbox/issues"
+Homepage = "https://github.com/redup-ai/redup.mcp-python-runner/blob/master/README.md"
+Repository = "https://github.com/redup-ai/redup.mcp-python-runner"
+Issues = "https://github.com/redup-ai/redup.mcp-python-runner/issues"
 
 [project.scripts]
-mcp-python-exec-sandbox = "mcp_python_exec_sandbox.__main__:main"
+redup-mcp-python-runner = "redup_mcp_python_runner.__main__:main"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.hatch.version]
+path = "VERSION"
+pattern = "(?P<version>.+)"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp_python_exec_sandbox"]
+packages = ["src/redup_mcp_python_runner"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "e2e_tests"]
+testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [dependency-groups]
@@ -42,7 +47,7 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.8"]
 
 [tool.ruff]
 target-version = "py313"
-src = ["src", "tests", "e2e_tests"]
+src = ["src", "tests"]
 line-length = 99
 
 [tool.ruff.lint]

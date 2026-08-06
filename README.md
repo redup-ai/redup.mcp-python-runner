@@ -1,324 +1,82 @@
-<!-- mcp-name: io.github.lu-zhengda/mcp-python-exec-sandbox -->
+# redup.mcp-python-runner
 
-# mcp-python-exec-sandbox
+![Docker test](https://github.com/redup-ai/redup.mcp-python-runner/actions/workflows/docker-test.yml/badge.svg?branch=master)
+![Python test](https://github.com/redup-ai/redup.mcp-python-runner/actions/workflows/python-test.yml/badge.svg?branch=master)
 
-[![CI](https://github.com/lu-zhengda/mcp-python-exec-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/lu-zhengda/mcp-python-exec-sandbox/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/mcp-python-exec-sandbox)](https://pypi.org/project/mcp-python-exec-sandbox/)
-[![Python](https://img.shields.io/pypi/pyversions/mcp-python-exec-sandbox)](https://pypi.org/project/mcp-python-exec-sandbox/)
-[![License](https://img.shields.io/github/license/lu-zhengda/mcp-python-exec-sandbox)](https://github.com/lu-zhengda/mcp-python-exec-sandbox/blob/main/LICENSE)
+MCP Streamable HTTP service for sandboxed ephemeral Python execution: scripts run
+with inline dependencies ([PEP 723](https://peps.python.org/pep-0723/)) via
+[`uv`](https://docs.astral.sh/uv/), without polluting the host environment.
 
-Sandboxed Python execution for AI agents. Scripts run in ephemeral, isolated environments with inline dependencies ([PEP 723](https://peps.python.org/pep-0723/)) -- **zero host pollution, zero leftover venvs, zero package conflicts**.
+Contract: MCP tools `execute_python`, `check_environment`, `validate_script`.
+Transport: Streamable HTTP on `/mcp` (stateless, JSON responses).
 
-## Why?
+## Configuration
 
-Every coding agent can already run Python on your host. The problem is what happens next: packages accumulate, venvs sprawl, and a rogue `pip install` breaks your system. **mcp-python-exec-sandbox** eliminates this:
+Service defaults (override with env):
 
-- Scripts execute in a sandbox (bubblewrap on Linux, Docker on macOS/other platforms)
-- Dependencies are declared inline and resolved ephemerally via `uv`
-- Nothing touches your host's Python, site-packages, or virtualenvs
-- Each execution is isolated and disposable
+| Env | Default | Description |
+|-----|---------|-------------|
+| `LISTEN_ADDRESS` / `APP_HOST` | `0.0.0.0` | Bind address |
+| `APP_PORT` / `MCP_PORT` | `8000` | Bind port |
+| `MCP_PATH` | `/mcp` | Streamable HTTP path |
+| `SANDBOX_BACKEND` | `native` | `native` (bubblewrap on Linux) or `none` |
+| `PYTHON_VERSION` | `3.13` | Python version for executed scripts |
+| `DEFAULT_TIMEOUT` | `30` | Default `execute_python` timeout (seconds) |
+| `MAX_TIMEOUT` | `300` | Maximum allowed timeout |
 
-## Features
+`native` needs [bubblewrap](https://github.com/containers/bubblewrap) and user
+namespaces. If that is unavailable (typical constrained Kubernetes), set
+`SANDBOX_BACKEND=none` — isolation is then the container only.
 
-- **Sandboxed execution** -- platform-specific isolation prevents host filesystem access
-- **PEP 723 inline metadata** -- declare dependencies directly in scripts with `# /// script` blocks
-- **Multi-version Python** -- run scripts on Python 3.13, 3.14, or 3.15 (uv downloads the right version automatically)
-- **Ephemeral environments** -- dependencies are resolved per-execution, never persisted
-- **Package caching** -- uv's global cache makes repeat installs near-instant
-- **Timeout enforcement** -- configurable per-execution timeouts
-- **Output truncation** -- prevents runaway output from overwhelming the agent
+CLI flags mirror the same options (`--host`, `--port`, `--path`,
+`--sandbox-backend`, …). Use `--transport stdio` for desktop MCP clients.
 
-## Prerequisites
-
-All setups require:
-
-- **Python 3.13+** -- to run the MCP server process
-- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** -- manages script execution, dependency resolution, and Python version downloads. Also provides `uvx` for running the server without installing it globally.
-
-Additional requirements depend on your chosen sandbox backend:
-
-| Setup | Additional requirements | Install |
-|-------|------------------------|---------|
-| **Native sandbox (Linux)** | [bubblewrap](https://github.com/containers/bubblewrap) | `sudo apt install bubblewrap` |
-| **Docker sandbox (macOS, any)** | [Docker Engine](https://docs.docker.com/engine/install/) | See Docker docs |
-| **No sandbox** | None | -- |
-
-> **Host Python vs. execution Python:** These are independent. Python 3.13+ is needed to run the server process itself. The `--python-version` flag controls which Python version your *scripts* execute on -- uv downloads the target version automatically. You do not need to install Python 3.14 or 3.15 on your host to run scripts on those versions.
-
-## Quick start
-
-### Claude Code (Linux -- native sandbox)
+## Run with Docker
 
 ```bash
-claude mcp add python-sandbox -- uvx mcp-python-exec-sandbox
+docker run --rm -p 8000:8000 \
+  redup4ai/redup.mcp-python-runner:0.1.0-3.13-slim
 ```
 
-### Claude Code (macOS -- Docker sandbox, recommended)
+The service listens for MCP Streamable HTTP on port **8000** at `/mcp`.
+
+Smoke with the MCP inspector:
 
 ```bash
-claude mcp add python-sandbox -- uvx mcp-python-exec-sandbox
+npx -y @modelcontextprotocol/inspector
+# URL: http://127.0.0.1:8000/mcp
 ```
 
-> The Docker sandbox image is pulled automatically from GHCR on first use. No manual build required.
-
-### Claude Code (no sandbox)
+Or call `initialize` with curl:
 
 ```bash
-claude mcp add python-sandbox -- uvx mcp-python-exec-sandbox --sandbox-backend none
+curl -sS -X POST http://127.0.0.1:8000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}'
 ```
 
-### Cursor
+## Run locally without Docker
 
-Add to `.cursor/mcp.json` (project-level) or `~/.cursor/mcp.json` (global):
-
-```json
-{
-  "mcpServers": {
-    "python-sandbox": {
-      "command": "uvx",
-      "args": ["mcp-python-exec-sandbox"]
-    }
-  }
-}
-```
-
-### OpenAI Codex CLI
+Requires Python 3.13+, [`uv`](https://docs.astral.sh/uv/), and on Linux
+`bubblewrap` for `SANDBOX_BACKEND=native`:
 
 ```bash
-codex mcp add python-sandbox -- uvx mcp-python-exec-sandbox
+sudo apt-get install -y bubblewrap
+uv sync
+uv run redup-mcp-python-runner --host 127.0.0.1 --port 8000
 ```
 
-Or add to `.codex/config.toml`:
-
-```toml
-[mcp_servers.python-sandbox]
-command = "uvx"
-args = ["mcp-python-exec-sandbox"]
-```
-
-### Other MCP clients
-
-Any client that supports the MCP stdio transport can use this server:
-
-```json
-{
-  "mcpServers": {
-    "python-sandbox": {
-      "command": "uvx",
-      "args": ["mcp-python-exec-sandbox"]
-    }
-  }
-}
-```
-
-## Multi-version Python
-
-Use `--python-version` to target a specific Python version. uv downloads it automatically -- no manual install needed.
+## Tests
 
 ```bash
-# Python 3.13 (default)
-uvx mcp-python-exec-sandbox --python-version 3.13
-
-# Python 3.14
-uvx mcp-python-exec-sandbox --python-version 3.14
-
-# Python 3.15
-uvx mcp-python-exec-sandbox --python-version 3.15
-```
-
-This works across all sandbox backends. The Docker sandbox uses uv inside the container to manage Python versions, so the same `--python-version` flag applies.
-
-## Tools
-
-### `execute_python`
-
-Execute a Python script with automatic dependency management.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `script` | str | required | Python source code, may include PEP 723 inline metadata |
-| `dependencies` | list[str] | `[]` | Extra PEP 508 dependency specifiers to merge |
-| `timeout_seconds` | int | 30 | Maximum execution time (1--300) |
-
-```python
-# Simple script
-execute_python(script="print('hello world')")
-
-# Script with dependencies
-execute_python(
-    script="import requests; print(requests.get('https://httpbin.org/get').status_code)",
-    dependencies=["requests"]
-)
-
-# Script with inline PEP 723 metadata
-execute_python(script="""
-# /// script
-# dependencies = ["pandas", "matplotlib"]
-# ///
-
-import pandas as pd
-print(pd.DataFrame({'a': [1,2,3]}).describe())
-""")
-```
-
-### `check_environment`
-
-Returns information about the execution environment: Python version, uv version, platform, sandbox status, and configuration.
-
-### `validate_script`
-
-Validates a script's PEP 723 metadata and dependencies without executing it.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `script` | str | required | Python source code to validate |
-| `dependencies` | list[str] | `[]` | Extra dependency specifiers to validate |
-
-## Sandbox backends
-
-| Backend | Platform | Tool | Notes |
-|---------|----------|------|-------|
-| `native` | Linux | bubblewrap | Namespace isolation, network allowed |
-| `docker` | Any | Docker | Container isolation, resource limits |
-| `none` | Any | -- | No sandboxing (not recommended) |
-
-The default backend is `native` (bubblewrap) on Linux and `docker` on macOS/other platforms. Specifying `--sandbox-backend native` on macOS automatically redirects to Docker. If the sandbox tool is unavailable, the server falls back to `none` with a warning.
-
-### Docker sandbox setup
-
-The Docker sandbox image is published to GHCR and pulled automatically when the server starts. No manual setup is needed.
-
-To build locally for development:
-
-```bash
-docker build -t ghcr.io/lu-zhengda/mcp-python-exec-sandbox profiles/
-```
-
-## CLI options
-
-```
-mcp-python-exec-sandbox [OPTIONS]
-
-Options:
-  --python-version TEXT     Python version for execution (default: 3.13)
-  --sandbox-backend TEXT    native | docker | none (default: native on Linux, docker on macOS)
-  --max-timeout INT         Maximum allowed timeout in seconds (default: 300)
-  --default-timeout INT     Default timeout in seconds (default: 30)
-  --max-output-bytes INT    Maximum output size in bytes (default: 102400)
-  --no-warm-cache           Skip cache warming on startup
-  --uv-path TEXT            Path to uv binary (default: uv)
-```
-
-## Development
-
-### Setup
-
-```bash
-git clone https://github.com/lu-zhengda/mcp-python-exec-sandbox.git
-cd mcp-python-exec-sandbox
 uv sync --dev
+uv run pytest tests -q
 ```
-
-### Project structure
-
-```
-src/mcp_python_exec_sandbox/   # Package source
-  server.py               # FastMCP server + tool definitions
-  executor.py             # uv subprocess orchestration
-  script.py               # PEP 723 metadata parsing/merging
-  sandbox.py              # Sandbox ABC + factory
-  sandbox_linux.py        # bubblewrap sandbox (Linux)
-  sandbox_docker.py       # Docker sandbox (macOS/any)
-  config.py, cache.py, output.py, errors.py
-tests/                    # Unit + integration tests (mocked or local uv)
-e2e_tests/                # End-to-end tests (require uv + network)
-profiles/                 # Dockerfile, warmup packages
-.devcontainer/            # Devcontainer for Linux sandbox testing from macOS
-```
-
-### Running tests
-
-**Unit and integration tests** -- fast, run everywhere:
-
-```bash
-uv run pytest tests/ -v
-```
-
-**E2E tests** -- require `uv` and network access. These exercise real script execution, package installation, MCP protocol flow, and sandbox enforcement:
-
-```bash
-uv run pytest e2e_tests/ -v
-```
-
-### Docker sandbox tests
-
-The Docker E2E tests (`e2e_tests/test_docker_sandbox.py`) verify execution, dependency installation, read-only filesystem enforcement, host isolation, and timeout handling through the Docker backend.
-
-Prerequisites:
-
-1. Docker must be installed and running
-2. Build the sandbox image:
-
-```bash
-docker build -t ghcr.io/lu-zhengda/mcp-python-exec-sandbox profiles/
-```
-
-Then run:
-
-```bash
-uv run pytest e2e_tests/test_docker_sandbox.py -v
-```
-
-These tests are automatically skipped if Docker is unavailable or the image hasn't been built.
-
-### Linux sandbox tests (devcontainer)
-
-The Linux sandbox tests (`e2e_tests/test_sandbox_enforcement.py::test_linux_sandbox_blocks_etc_shadow`) use bubblewrap (`bwrap`) for namespace isolation. They are skipped on macOS because `bwrap` is Linux-only.
-
-To run them from macOS, use the included devcontainer which provides Ubuntu 24.04 with `bwrap` pre-installed:
-
-**VS Code:**
-
-1. Install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
-2. Open the project and select **Reopen in Container**
-3. In the integrated terminal:
-
-```bash
-uv run pytest e2e_tests/test_sandbox_enforcement.py -v
-```
-
-**CLI:**
-
-```bash
-# Install the devcontainer CLI (once)
-npm install -g @devcontainers/cli
-
-# Build and start the container
-devcontainer up --workspace-folder .
-
-# Run the Linux sandbox tests inside the container
-devcontainer exec --workspace-folder . uv run pytest e2e_tests/test_sandbox_enforcement.py -v
-```
-
-### Test matrix
-
-| Test suite | Command | Requirements |
-|------------|---------|-------------|
-| Unit tests | `uv run pytest tests/ -v` | `uv` |
-| Integration tests | `uv run pytest tests/test_integration.py -v` | `uv` |
-| E2E (general) | `uv run pytest e2e_tests/ -v` | `uv`, network |
-| E2E (Docker sandbox) | `uv run pytest e2e_tests/test_docker_sandbox.py -v` | `uv`, Docker, sandbox image |
-| E2E (Linux/bwrap sandbox) | `uv run pytest e2e_tests/test_sandbox_enforcement.py -v` | `uv`, Linux with `bwrap` (or devcontainer) |
-
-### Contributing
-
-- One logical change per commit. Descriptive commit message (imperative mood).
-- Run `uv run pytest tests/ -v` before committing -- all tests must pass.
-- Add tests for new functionality: unit tests in `tests/`, E2E in `e2e_tests/` if it needs real execution.
-- Keep dependencies minimal. Do not add runtime deps without strong justification.
-- Tool docstrings in `server.py` are user-facing MCP tool descriptions. Write them for an LLM audience.
-- Sandbox backends must degrade gracefully: if the required tool (bwrap, docker) is missing, fall back to `NoopSandbox` with a warning.
 
 ## License
 
-MIT
+MIT — see `LICENSE`.
+
+Derived from [mcp-python-exec-sandbox](https://github.com/lu-zhengda/mcp-python-exec-sandbox)
+(Copyright (c) 2025 mcp-python-executor contributors), MIT. See `NOTICE`.

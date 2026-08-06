@@ -8,9 +8,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PACKAGES_FILE = Path(__file__).parent.parent.parent / "profiles" / "warmup_packages.txt"
-
-_FALLBACK_PACKAGES = [
+_DEFAULT_PACKAGES = [
     "requests",
     "httpx",
     "numpy",
@@ -31,12 +29,11 @@ _FALLBACK_PACKAGES = [
 
 
 def _load_package_list(packages_file: Path | None = None) -> list[str]:
-    """Load the list of packages to pre-warm from file or use defaults."""
-    path = packages_file or _DEFAULT_PACKAGES_FILE
-    if path.exists():
-        lines = path.read_text().splitlines()
+    """Load packages from an optional file, else use built-in defaults."""
+    if packages_file is not None and packages_file.exists():
+        lines = packages_file.read_text().splitlines()
         return [line.strip() for line in lines if line.strip() and not line.startswith("#")]
-    return list(_FALLBACK_PACKAGES)
+    return list(_DEFAULT_PACKAGES)
 
 
 async def warm_cache(

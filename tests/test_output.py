@@ -1,6 +1,6 @@
 """Tests for output formatting and truncation."""
 
-from mcp_python_exec_sandbox.output import ExecutionResult, format_result, truncate_output
+from redup_mcp_python_runner.output import ExecutionResult, format_result, truncate_output
 
 
 class TestTruncateOutput:

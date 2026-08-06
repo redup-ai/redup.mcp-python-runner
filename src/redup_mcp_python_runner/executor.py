@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from mcp_python_exec_sandbox.output import ExecutionResult
+from redup_mcp_python_runner.output import ExecutionResult
 
 _uv_cache_dir: str | None = None
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from mcp_python_exec_sandbox.sandbox import Sandbox
+from redup_mcp_python_runner.sandbox import Sandbox
 
 
 class BubblewrapSandbox(Sandbox):

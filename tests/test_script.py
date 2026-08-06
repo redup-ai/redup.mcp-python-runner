@@ -2,8 +2,8 @@
 
 import pytest
 
-from mcp_python_exec_sandbox.errors import ScriptMetadataError
-from mcp_python_exec_sandbox.script import (
+from redup_mcp_python_runner.errors import ScriptMetadataError
+from redup_mcp_python_runner.script import (
     build_script,
     extract_metadata,
     strip_metadata,

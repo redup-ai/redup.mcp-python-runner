@@ -2,8 +2,8 @@
 
 import pytest
 
-from mcp_python_exec_sandbox.__main__ import parse_args
-from mcp_python_exec_sandbox.config import ServerConfig
+from redup_mcp_python_runner.__main__ import parse_args
+from redup_mcp_python_runner.config import ServerConfig
 
 
 class TestServerConfig:
@@ -16,6 +16,12 @@ class TestServerConfig:
         assert config.max_output_bytes == 102_400
         assert config.warm_cache is True
         assert config.uv_path == "uv"
+        assert config.transport == "http"
+        assert config.host == "0.0.0.0"
+        assert config.port == 8000
+        assert config.path == "/mcp"
+        assert config.json_response is True
+        assert config.stateless_http is True
 
     def test_invalid_sandbox_backend(self):
         with pytest.raises(ValueError, match="Invalid sandbox_backend"):
@@ -40,14 +46,14 @@ class TestServerConfig:
     def test_custom_values(self):
         config = ServerConfig(
             python_version="3.14",
-            sandbox_backend="docker",
+            sandbox_backend="none",
             max_timeout=600,
             default_timeout=60,
             max_output_bytes=200_000,
             warm_cache=False,
         )
         assert config.python_version == "3.14"
-        assert config.sandbox_backend == "docker"
+        assert config.sandbox_backend == "none"
         assert config.max_timeout == 600
         assert config.default_timeout == 60
         assert config.max_output_bytes == 200_000
@@ -60,20 +66,32 @@ class TestParseArgs:
 
         args = parse_args([])
         assert args.python_version == "3.13"
-        expected_backend = "native" if sys.platform == "linux" else "docker"
+        expected_backend = "native" if sys.platform == "linux" else "none"
         assert args.sandbox_backend == expected_backend
         assert args.max_timeout == 300
         assert args.default_timeout == 30
         assert args.max_output_bytes == 102_400
         assert args.no_warm_cache is False
+        assert args.transport == "http"
+        assert args.host == "0.0.0.0"
+        assert args.port == 8000
+        assert args.path == "/mcp"
 
     def test_custom_args(self):
         args = parse_args(
             [
+                "--transport",
+                "stdio",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "9000",
+                "--path",
+                "/mcp/",
                 "--python-version",
                 "3.14",
                 "--sandbox-backend",
-                "docker",
+                "none",
                 "--max-timeout",
                 "600",
                 "--default-timeout",
@@ -83,8 +101,12 @@ class TestParseArgs:
                 "--no-warm-cache",
             ]
         )
+        assert args.transport == "stdio"
+        assert args.host == "127.0.0.1"
+        assert args.port == 9000
+        assert args.path == "/mcp/"
         assert args.python_version == "3.14"
-        assert args.sandbox_backend == "docker"
+        assert args.sandbox_backend == "none"
         assert args.max_timeout == 600
         assert args.default_timeout == 60
         assert args.max_output_bytes == 200_000

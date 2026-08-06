@@ -1,4 +1,4 @@
-"""Exception hierarchy for mcp-python-exec-sandbox."""
+"""Exception hierarchy for redup-mcp-python-runner."""
 
 
 class ExecutorError(Exception):

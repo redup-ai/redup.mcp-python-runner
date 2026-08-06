@@ -1,0 +1,44 @@
+ARG BASE_IMAGE=python:3.13-slim
+
+FROM ${BASE_IMAGE} AS builder
+
+RUN --mount=type=secret,id=PIP_INDEX_URL,required=false \
+    export PIP_INDEX_URL=$(cat /run/secrets/PIP_INDEX_URL 2>/dev/null || true) \
+    && python3 -m pip install --no-cache -U uv hatchling
+
+WORKDIR /build
+COPY pyproject.toml VERSION README.md LICENSE NOTICE ./
+COPY src ./src
+RUN --mount=type=secret,id=PIP_INDEX_URL,required=false \
+    export PIP_INDEX_URL=$(cat /run/secrets/PIP_INDEX_URL 2>/dev/null || true) \
+    && if [ -n "${PIP_INDEX_URL}" ]; then export UV_INDEX_URL="${PIP_INDEX_URL}"; fi \
+    && uv pip install --no-cache --system --python python --target=/app/libs .
+
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bubblewrap ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+ENV PYTHONPATH=/app/libs
+COPY --from=builder /app/libs /app/libs
+COPY VERSION /app/VERSION
+
+WORKDIR /app
+
+ENV SANDBOX_BACKEND=native \
+    LISTEN_ADDRESS=0.0.0.0 \
+    APP_PORT=8000 \
+    MCP_PATH=/mcp \
+    MCP_STATELESS_HTTP=true \
+    MCP_JSON_RESPONSE=true \
+    UV_CACHE_DIR=/var/cache/uv
+
+RUN mkdir -p /var/cache/uv \
+    && find / -xdev \( -perm -4000 -o -perm -2000 \) -type f -exec chmod a-s {} \; || true
+
+EXPOSE 8000
+
+CMD ["python", "-m", "redup_mcp_python_runner"]

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class Sandbox(ABC):
@@ -47,50 +50,30 @@ class NoopSandbox(Sandbox):
         return "none (no sandboxing)"
 
 
-def _get_docker_sandbox() -> Sandbox:
-    """Create a Docker sandbox, falling back to NoopSandbox if unavailable."""
-    from mcp_python_exec_sandbox.sandbox_docker import DockerSandbox
-
-    sb = DockerSandbox()
-    if not sb.is_available():
-        import logging
-
-        logging.warning("Docker not available, falling back to no sandbox")
-        return NoopSandbox()
-    return sb
-
-
 def get_sandbox(backend: str) -> Sandbox:
     """Create a sandbox instance for the given backend.
 
     Falls back to NoopSandbox with a warning if the requested backend
-    is not available.
+    is not available. Supported backends: ``native`` (bubblewrap, Linux),
+    ``none``.
     """
     if backend == "none":
         return NoopSandbox()
 
     if backend == "native":
-        if sys.platform == "linux":
-            from mcp_python_exec_sandbox.sandbox_linux import BubblewrapSandbox
+        if sys.platform != "linux":
+            logger.warning(
+                "Native sandbox is Linux-only; falling back to none on %s",
+                sys.platform,
+            )
+            return NoopSandbox()
 
-            sb = BubblewrapSandbox()
-            if not sb.is_available():
-                import logging
+        from redup_mcp_python_runner.sandbox_linux import BubblewrapSandbox
 
-                logging.warning("bwrap not found, falling back to no sandbox")
-                return NoopSandbox()
-            return sb
-
-        # Native sandbox is only supported on Linux; use Docker on other platforms.
-        import logging
-
-        logging.info(
-            "Native sandbox is Linux-only; using Docker sandbox on %s.",
-            sys.platform,
-        )
-        return _get_docker_sandbox()
-
-    if backend == "docker":
-        return _get_docker_sandbox()
+        sb = BubblewrapSandbox()
+        if not sb.is_available():
+            logger.warning("bwrap not found, falling back to no sandbox")
+            return NoopSandbox()
+        return sb
 
     raise ValueError(f"Unknown sandbox backend: {backend!r}")
