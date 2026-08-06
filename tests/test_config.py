@@ -71,7 +71,8 @@ class TestParseArgs:
         assert args.max_timeout == 300
         assert args.default_timeout == 30
         assert args.max_output_bytes == 102_400
-        assert args.no_warm_cache is False
+        assert args.no_warm_cache is not True
+
         assert args.transport == "http"
         assert args.host == "0.0.0.0"
         assert args.port == 8000

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -43,8 +44,8 @@ async def warm_cache(
 ) -> None:
     """Pre-download popular packages into the uv cache.
 
-    This runs in the background and is non-fatal — failures are logged
-    as warnings.
+    Uses ``uv pip install --target <tmpdir>`` so wheels land in the global uv
+    cache (``uv pip download`` was removed in recent uv versions). Non-fatal.
     """
     packages = _load_package_list(packages_file)
     if not packages:
@@ -53,27 +54,28 @@ async def warm_cache(
     logger.info("Cache warming: downloading %d packages...", len(packages))
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            uv_path,
-            "pip",
-            "download",
-            "--python-version",
-            python_version,
-            *packages,
-            "--dest",
-            "/dev/null",  # We only want the cache side-effect
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-        if proc.returncode == 0:
-            logger.info("Cache warming complete")
-        else:
-            logger.warning(
-                "Cache warming finished with errors (exit %d): %s",
-                proc.returncode,
-                stderr.decode("utf-8", errors="replace")[:500],
+        with tempfile.TemporaryDirectory(prefix="mcp-warm-") as tmpdir:
+            proc = await asyncio.create_subprocess_exec(
+                uv_path,
+                "pip",
+                "install",
+                "--python",
+                python_version,
+                "--target",
+                tmpdir,
+                *packages,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            if proc.returncode == 0:
+                logger.info("Cache warming complete")
+            else:
+                logger.warning(
+                    "Cache warming finished with errors (exit %d): %s",
+                    proc.returncode,
+                    stderr.decode("utf-8", errors="replace")[:500],
+                )
     except TimeoutError:
         logger.warning("Cache warming timed out after 300s")
     except Exception:

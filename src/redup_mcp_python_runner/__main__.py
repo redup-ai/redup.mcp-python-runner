@@ -87,7 +87,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-warm-cache",
         action="store_true",
-        help="Skip cache warming on startup",
+        default=None,
+        help="Skip cache warming on startup (or set WARM_CACHE=false)",
     )
     parser.add_argument(
         "--uv-path",
@@ -100,7 +101,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
-    from redup_mcp_python_runner.config import ServerConfig
+    from redup_mcp_python_runner.config import ServerConfig, _env_bool
     from redup_mcp_python_runner.server import create_server
 
     transport = args.transport
@@ -108,13 +109,18 @@ def main(argv: list[str] | None = None) -> None:
         # Alias used by FastMCP / company MCP services
         transport = "streamable-http"
 
+    if args.no_warm_cache:
+        warm_cache = False
+    else:
+        warm_cache = _env_bool("WARM_CACHE", True)
+
     config = ServerConfig(
         python_version=args.python_version,
         sandbox_backend=args.sandbox_backend,
         max_timeout=args.max_timeout,
         default_timeout=args.default_timeout,
         max_output_bytes=args.max_output_bytes,
-        warm_cache=not args.no_warm_cache,
+        warm_cache=warm_cache,
         uv_path=args.uv_path,
         transport=transport,
         host=args.host,
