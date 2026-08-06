@@ -30,7 +30,7 @@ McpPythonRunner:
   default_timeout: 30
   max_timeout: 300
   max_output_bytes: 102400
-  warm_cache: true
+  warm_cache: false
   uv_path: uv
   json_response: true
   stateless_http: true
