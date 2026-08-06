@@ -109,10 +109,7 @@ def main(argv: list[str] | None = None) -> None:
         # Alias used by FastMCP / company MCP services
         transport = "streamable-http"
 
-    if args.no_warm_cache:
-        warm_cache = False
-    else:
-        warm_cache = _env_bool("WARM_CACHE", True)
+    warm_cache = False if args.no_warm_cache else _env_bool("WARM_CACHE", True)
 
     config = ServerConfig(
         python_version=args.python_version,
