@@ -20,3 +20,11 @@ class TestCreateServer:
         config = ServerConfig(sandbox_backend="none", warm_cache=False, uv_path="/nonexistent/uv")
         with pytest.raises(RuntimeError, match="uv not found"):
             create_server(config)
+
+    @pytest.mark.asyncio
+    async def test_tool_annotations(self, server):
+        tools = await server.get_tools()
+        assert tools["execute_python"].annotations.readOnlyHint is False
+        assert tools["execute_python"].annotations.destructiveHint is True
+        assert tools["check_environment"].annotations.readOnlyHint is True
+        assert tools["validate_script"].annotations.readOnlyHint is True

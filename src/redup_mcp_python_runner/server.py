@@ -63,7 +63,13 @@ def create_server(config: ServerConfig) -> FastMCP:
     )
     mcp._mcp_config = config  # type: ignore[attr-defined]
 
-    @mcp.tool
+    @mcp.tool(
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "openWorldHint": True,
+        }
+    )
     async def execute_python(
         script: str,
         dependencies: list[str] | None = None,
@@ -143,7 +149,13 @@ def create_server(config: ServerConfig) -> FastMCP:
 
             return format_result(result, config.max_output_bytes)
 
-    @mcp.tool
+    @mcp.tool(
+        annotations={
+            "readOnlyHint": True,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        }
+    )
     async def check_environment() -> str:
         """Check the execution environment and report status.
 
@@ -178,7 +190,13 @@ def create_server(config: ServerConfig) -> FastMCP:
             ]
             return "\n".join(lines)
 
-    @mcp.tool
+    @mcp.tool(
+        annotations={
+            "readOnlyHint": True,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        }
+    )
     async def validate_script(
         script: str,
         dependencies: list[str] | None = None,
