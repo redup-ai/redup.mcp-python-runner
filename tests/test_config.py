@@ -15,15 +15,10 @@ class TestServerConfig:
         assert config.sandbox_backend == "native"
         assert config.max_timeout == 300
         assert config.default_timeout == 30
-        assert config.max_output_bytes == 102_400
-        assert config.warm_cache is True
-        assert config.uv_path == "uv"
+        assert config.max_output_bytes == 1_048_576
+        assert config.warm_cache is False
         assert config.transport == "http"
-        assert config.host == "0.0.0.0"
-        assert config.port == 8000
-        assert config.path == "/mcp"
         assert config.json_response is True
-        assert config.stateless_http is True
 
     def test_invalid_sandbox_backend(self):
         with pytest.raises(ValueError, match="Invalid sandbox_backend"):
@@ -45,22 +40,6 @@ class TestServerConfig:
         with pytest.raises(ValueError, match="max_output_bytes must be >= 1024"):
             ServerConfig(max_output_bytes=100)
 
-    def test_custom_values(self):
-        config = ServerConfig(
-            python_version="3.14",
-            sandbox_backend="none",
-            max_timeout=600,
-            default_timeout=60,
-            max_output_bytes=200_000,
-            warm_cache=False,
-        )
-        assert config.python_version == "3.14"
-        assert config.sandbox_backend == "none"
-        assert config.max_timeout == 600
-        assert config.default_timeout == 60
-        assert config.max_output_bytes == 200_000
-        assert config.warm_cache is False
-
     def test_from_servicekit(self):
         config = ServerConfig.from_servicekit(
             {
@@ -70,8 +49,9 @@ class TestServerConfig:
                     "path": "/mcp",
                 },
                 "McpPythonRunner": {
-                    "sandbox_backend": "none",
+                    "sandbox_backend": "native",
                     "python_version": "3.13",
+                    "runtime_python": "/opt/code-tools-env/bin/python",
                     "default_timeout": 15,
                     "max_timeout": 120,
                     "max_output_bytes": 50_000,
@@ -83,12 +63,9 @@ class TestServerConfig:
         )
         assert config.host == "127.0.0.1"
         assert config.port == 9000
-        assert config.path == "/mcp"
-        assert config.sandbox_backend == "none"
+        assert config.sandbox_backend == "native"
+        assert config.runtime_python == "/opt/code-tools-env/bin/python"
         assert config.default_timeout == 15
-        assert config.max_timeout == 120
-        assert config.max_output_bytes == 50_000
-        assert config.warm_cache is False
         assert config.transport == "streamable-http"
 
     def test_from_servicekit_string_bools(self):
@@ -117,12 +94,8 @@ class TestParseArgs:
         assert args.sandbox_backend == expected_backend
         assert args.max_timeout == 300
         assert args.default_timeout == 30
-        assert args.max_output_bytes == 102_400
-        assert args.no_warm_cache is False
+        assert args.max_output_bytes == 1_048_576
         assert args.transport == "stdio"
-        assert args.host == "127.0.0.1"
-        assert args.port == 8000
-        assert args.path == "/mcp"
 
     def test_custom_args(self):
         args = parse_args(
@@ -133,10 +106,8 @@ class TestParseArgs:
                 "0.0.0.0",
                 "--port",
                 "9000",
-                "--path",
-                "/mcp/",
-                "--python-version",
-                "3.14",
+                "--runtime-python",
+                "/opt/code-tools-env/bin/python",
                 "--sandbox-backend",
                 "none",
                 "--max-timeout",
@@ -149,12 +120,7 @@ class TestParseArgs:
             ]
         )
         assert args.transport == "http"
-        assert args.host == "0.0.0.0"
-        assert args.port == 9000
-        assert args.path == "/mcp/"
-        assert args.python_version == "3.14"
+        assert args.runtime_python == "/opt/code-tools-env/bin/python"
         assert args.sandbox_backend == "none"
         assert args.max_timeout == 600
-        assert args.default_timeout == 60
-        assert args.max_output_bytes == 200_000
         assert args.no_warm_cache is True

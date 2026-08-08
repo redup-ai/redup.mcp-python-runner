@@ -3,19 +3,29 @@
 ![Docker test](https://github.com/redup-ai/redup.mcp-python-runner/actions/workflows/docker-test.yml/badge.svg?branch=master)
 ![Python test](https://github.com/redup-ai/redup.mcp-python-runner/actions/workflows/python-test.yml/badge.svg?branch=master)
 
-MCP Streamable HTTP service for ephemeral Python execution. Scripts run with
-inline dependencies ([PEP 723](https://peps.python.org/pep-0723/)) via
-[`uv`](https://docs.astral.sh/uv/).
+MCP Streamable HTTP service for **offline** ephemeral Python execution.
+
+## Security model
+
+- **No network** in the native (bubblewrap) sandbox — no `--share-net`.
+- **No runtime package installs** — no `uv run --script` dependency resolution,
+  no `dependencies` tool arg, PEP 723 `dependencies = [...]` is **rejected**.
+- Allowlisted packages are installed **only at image build time** into
+  `/opt/code-tools-env` (see `packages.txt`).
+- Tool results are **JSON** (`stdout` / `stderr` / `exit_code` / `artifacts`),
+  not a concatenated text dump.
 
 Contract: MCP tools `execute_python`, `check_environment`, `validate_code`.
 Endpoint: `POST http://<host>:8000/mcp` (stateless Streamable HTTP, JSON).
 Metrics: `GET http://<host>:9999/metrics` (Prometheus via `redup-servicekit`).
 
 **Tool args:** `execute_python` / `validate_code` take **`code`** (required);
-`execute_python` also takes **`timeout`** (seconds). Optional `dependencies: string[]`.
-No legacy aliases (`script` / `timeout_seconds` / `validate_script` removed).
-Workspace is ephemeral — only stdout/stderr return; binaries must be printed as
-base64 on stdout.
+`execute_python` also takes **`timeout`** (seconds). There is **no**
+`dependencies` argument.
+
+**Binaries:** write files under `ARTIFACTS_DIR` (set in the process env). They
+are returned in the JSON `artifacts[]` field as `content_base64`. Do not paste
+raw tool transcripts into `create_file`.
 
 ## Configuration
 
@@ -31,27 +41,30 @@ service:
   hpa_max_workers: 2
 
 McpPythonRunner:
-  sandbox_backend: none          # or native (bubblewrap + user namespaces)
+  sandbox_backend: native        # bubblewrap, no network; or none
   python_version: "3.13"
+  runtime_python: "/opt/code-tools-env/bin/python"
+  packages_file: "/config/packages.txt"
   default_timeout: 30
   max_timeout: 300
-  max_output_bytes: 102400
-  warm_cache: false
-  uv_path: uv
+  max_output_bytes: 1048576
+  max_artifact_bytes: 5242880
+  max_artifacts_total_bytes: 10485760
   json_response: true
   stateless_http: true
 ```
 
-Override without editing the file via servicekit env substitution (`section___key`):
+Override via servicekit env substitution (`section___key`):
 
 ```bash
-export McpPythonRunner___sandbox_backend=none
-export McpPythonRunner___warm_cache=false
+export McpPythonRunner___sandbox_backend=native
+export McpPythonRunner___runtime_python=/opt/code-tools-env/bin/python
 export service___port=8000
 ```
 
 `McpPythonRunner.sandbox_backend=native` needs bubblewrap and unprivileged user
-namespaces. The image defaults to `none` (isolation = container).
+namespaces. If unavailable, set `none` (isolation = container only; still no
+runtime installs).
 
 ## Run with Docker
 
@@ -62,35 +75,20 @@ docker run --rm -p 8000:8000 -p 9999:9999 \
 
 MCP URL: `http://127.0.0.1:8000/mcp`. Metrics: `http://127.0.0.1:9999/metrics`.
 
-Smoke with the MCP inspector:
-
-```bash
-npx -y @modelcontextprotocol/inspector
-# URL: http://127.0.0.1:8000/mcp
-```
-
-Or:
-
-```bash
-curl -sS -X POST http://127.0.0.1:8000/mcp \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}'
-```
-
 ## Run locally without Docker
 
-Requires Python 3.13+ and [`uv`](https://docs.astral.sh/uv/):
+Requires Python 3.13+ and a preinstalled scientific stack (or point
+`--runtime-python` at a venv that already has `packages.txt` installed):
 
 ```bash
 uv sync
 uv run python -m redup_mcp_python_runner.service config/config.yaml
 ```
 
-Desktop MCP clients (stdio, no MonitorServer):
+Desktop MCP clients (stdio):
 
 ```bash
-uv run redup-mcp-python-runner --transport stdio
+uv run redup-mcp-python-runner --transport stdio --sandbox-backend none
 ```
 
 ## Tests

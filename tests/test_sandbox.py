@@ -16,7 +16,7 @@ class TestNoopSandbox:
 
     def test_wrap_passthrough(self):
         sb = NoopSandbox()
-        cmd = ["uv", "run", "--script", "test.py"]
+        cmd = ["python", "test.py"]
         assert sb.wrap(cmd, Path("/tmp/test.py")) == cmd
 
     def test_describe(self):
@@ -47,15 +47,20 @@ class TestGetSandbox:
 
 class TestBubblewrapSandbox:
     @pytest.mark.skipif(sys.platform != "linux", reason="Linux only")
-    def test_wrap_command(self):
+    def test_wrap_command_offline(self):
         from redup_mcp_python_runner.sandbox_linux import BubblewrapSandbox
 
         with patch("shutil.which", return_value="/usr/bin/bwrap"):
             sb = BubblewrapSandbox()
-            cmd = ["uv", "run", "--script", "--python", "3.13", "/tmp/test.py"]
-            wrapped = sb.wrap(cmd, Path("/tmp/test.py"))
+            cmd = ["/opt/code-tools-env/bin/python", "/tmp/test.py"]
+            wrapped = sb.wrap(
+                cmd,
+                Path("/tmp/test.py"),
+                extra_ro_binds=[Path("/opt/code-tools-env")],
+            )
             assert wrapped[0] == "/usr/bin/bwrap"
             assert "--unshare-all" in wrapped
-            assert "--share-net" in wrapped
+            assert "--share-net" not in wrapped
+            assert "/etc/resolv.conf" not in wrapped
             assert "--die-with-parent" in wrapped
-            assert wrapped[-6:] == cmd
+            assert wrapped[-2:] == cmd

@@ -19,7 +19,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="redup-mcp-python-runner",
         description=(
-            "MCP Python runner (local CLI). "
+            "MCP Python runner (local CLI, offline sandbox). "
             "For production HTTP use: python -m redup_mcp_python_runner.service CONFIG.yaml"
         ),
     )
@@ -48,14 +48,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--python-version",
         default="3.13",
-        help="Python version for script execution (default: 3.13)",
+        help="Python version label for diagnostics (default: 3.13)",
+    )
+    parser.add_argument(
+        "--runtime-python",
+        default="",
+        help="Preinstalled interpreter path (default: CODE_TOOLS_PYTHON or sys.executable)",
+    )
+    parser.add_argument(
+        "--packages-file",
+        default="",
+        help="Path to packages.txt allowlist",
     )
     parser.add_argument(
         "--sandbox-backend",
         choices=["native", "none"],
         default=default_backend,
         help=(
-            "Sandbox backend: native (bwrap, Linux only) or none "
+            "Sandbox backend: native (bwrap offline, Linux only) or none "
             f"(default: {default_backend})"
         ),
     )
@@ -74,18 +84,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--max-output-bytes",
         type=int,
-        default=102_400,
-        help="Maximum output size in bytes (default: 102400)",
+        default=1_048_576,
+        help="Maximum stdout/stderr size in bytes (default: 1048576)",
     )
     parser.add_argument(
         "--no-warm-cache",
         action="store_true",
-        help="Skip cache warming on startup",
+        help="Ignored (kept for CLI compat); runtime installs are disabled",
     )
     parser.add_argument(
         "--uv-path",
         default="uv",
-        help="Path to uv binary (default: uv)",
+        help="Path to uv binary for diagnostics only (default: uv)",
     )
     return parser.parse_args(argv)
 
@@ -106,7 +116,9 @@ def main(argv: list[str] | None = None) -> None:
         max_timeout=args.max_timeout,
         default_timeout=args.default_timeout,
         max_output_bytes=args.max_output_bytes,
-        warm_cache=not args.no_warm_cache,
+        runtime_python=args.runtime_python,
+        packages_file=args.packages_file,
+        warm_cache=False,
         uv_path=args.uv_path,
         transport=transport,
         host=args.host,

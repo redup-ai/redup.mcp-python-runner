@@ -19,16 +19,13 @@ class Sandbox(ABC):
         ...
 
     @abstractmethod
-    def wrap(self, cmd: list[str], script_path: Path) -> list[str]:
-        """Wrap a command with sandbox isolation.
-
-        Args:
-            cmd: The original command to execute.
-            script_path: Path to the script being executed.
-
-        Returns:
-            The wrapped command list.
-        """
+    def wrap(
+        self,
+        cmd: list[str],
+        script_path: Path,
+        extra_ro_binds: list | None = None,
+    ) -> list[str]:
+        """Wrap a command with sandbox isolation (no network)."""
         ...
 
     @abstractmethod
@@ -43,11 +40,11 @@ class NoopSandbox(Sandbox):
     def is_available(self) -> bool:
         return True
 
-    def wrap(self, cmd: list[str], script_path: Path) -> list[str]:
+    def wrap(self, cmd: list[str], script_path: Path, extra_ro_binds: list | None = None) -> list[str]:
         return cmd
 
     def describe(self) -> str:
-        return "none (no sandboxing)"
+        return "none (no sandboxing; still offline — no package install)"
 
 
 def get_sandbox(backend: str) -> Sandbox:

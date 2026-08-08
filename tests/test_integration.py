@@ -1,51 +1,51 @@
-"""Integration tests — require uv installed."""
+"""Integration tests — run with the local interpreter (offline, no uv install)."""
 
+import json
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from redup_mcp_python_runner.executor import execute
-from redup_mcp_python_runner.script import build_script
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("uv") is None,
-    reason="uv not installed",
-)
+from redup_mcp_python_runner.output import format_result
+from redup_mcp_python_runner.script import prepare_script
 
 
 class TestRealExecution:
     @pytest.mark.asyncio
     async def test_simple_script(self):
         with tempfile.TemporaryDirectory(prefix="mcp-test-") as tmpdir:
-            script_path = Path(tmpdir) / "test.py"
-            script_path.write_text("print('hello from uv')\n")
+            script_path = Path(tmpdir) / "script.py"
+            script_path.write_text("print('hello from offline')\n")
+            (Path(tmpdir) / "artifacts").mkdir()
 
             result = await execute(
                 script_path=script_path,
-                python_version="3.13",
                 timeout=30,
                 sandbox=None,
                 max_output_bytes=102400,
+                runtime_python=sys.executable,
             )
 
         assert result.exit_code == 0
-        assert "hello from uv" in result.stdout
+        assert "hello from offline" in result.stdout
         assert result.timed_out is False
 
     @pytest.mark.asyncio
     async def test_script_with_exit_code(self):
         with tempfile.TemporaryDirectory(prefix="mcp-test-") as tmpdir:
-            script_path = Path(tmpdir) / "test.py"
+            script_path = Path(tmpdir) / "script.py"
             script_path.write_text("import sys; sys.exit(42)\n")
+            (Path(tmpdir) / "artifacts").mkdir()
 
             result = await execute(
                 script_path=script_path,
-                python_version="3.13",
                 timeout=30,
                 sandbox=None,
                 max_output_bytes=102400,
+                runtime_python=sys.executable,
             )
 
         assert result.exit_code == 42
@@ -53,15 +53,18 @@ class TestRealExecution:
     @pytest.mark.asyncio
     async def test_script_with_stderr(self):
         with tempfile.TemporaryDirectory(prefix="mcp-test-") as tmpdir:
-            script_path = Path(tmpdir) / "test.py"
-            script_path.write_text("import sys; print('err', file=sys.stderr)\nprint('out')\n")
+            script_path = Path(tmpdir) / "script.py"
+            script_path.write_text(
+                "import sys; print('err', file=sys.stderr)\nprint('out')\n"
+            )
+            (Path(tmpdir) / "artifacts").mkdir()
 
             result = await execute(
                 script_path=script_path,
-                python_version="3.13",
                 timeout=30,
                 sandbox=None,
                 max_output_bytes=102400,
+                runtime_python=sys.executable,
             )
 
         assert result.exit_code == 0
@@ -71,63 +74,64 @@ class TestRealExecution:
     @pytest.mark.asyncio
     async def test_timeout_enforcement(self):
         with tempfile.TemporaryDirectory(prefix="mcp-test-") as tmpdir:
-            script_path = Path(tmpdir) / "test.py"
+            script_path = Path(tmpdir) / "script.py"
             script_path.write_text("import time; time.sleep(60)\n")
+            (Path(tmpdir) / "artifacts").mkdir()
 
             result = await execute(
                 script_path=script_path,
-                python_version="3.13",
                 timeout=2,
                 sandbox=None,
                 max_output_bytes=102400,
+                runtime_python=sys.executable,
             )
 
         assert result.timed_out is True
 
     @pytest.mark.asyncio
-    async def test_script_with_pep723_deps(self):
-        """Test that PEP 723 inline metadata works with uv."""
-        script = build_script(
-            "import pydantic; print(pydantic.__version__)\n",
-            extra_dependencies=["pydantic>=2.0"],
-            python_version="3.13",
-        )
-
+    async def test_artifacts_collected(self):
         with tempfile.TemporaryDirectory(prefix="mcp-test-") as tmpdir:
-            script_path = Path(tmpdir) / "test.py"
-            script_path.write_text(script)
-
-            result = await execute(
-                script_path=script_path,
-                python_version="3.13",
-                timeout=120,
-                sandbox=None,
-                max_output_bytes=102400,
+            script_path = Path(tmpdir) / "script.py"
+            script_path.write_text(
+                "import os\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['ARTIFACTS_DIR'], 'hi.txt').write_text('ok')\n"
+                "print('done')\n"
             )
-
-        assert result.exit_code == 0
-        # Should print a version like "2.x.y"
-        assert result.stdout.strip().startswith("2.")
-
-    @pytest.mark.asyncio
-    async def test_invalid_dependency(self):
-        """Test that an invalid dependency produces a clear error."""
-        script = build_script(
-            "print('hello')\n",
-            extra_dependencies=["this-package-does-not-exist-xyz123"],
-            python_version="3.13",
-        )
-
-        with tempfile.TemporaryDirectory(prefix="mcp-test-") as tmpdir:
-            script_path = Path(tmpdir) / "test.py"
-            script_path.write_text(script)
+            (Path(tmpdir) / "artifacts").mkdir()
 
             result = await execute(
                 script_path=script_path,
-                python_version="3.13",
                 timeout=30,
                 sandbox=None,
                 max_output_bytes=102400,
+                runtime_python=sys.executable,
             )
 
-        assert result.exit_code != 0
+        assert result.exit_code == 0
+        assert len(result.artifacts) == 1
+        assert result.artifacts[0]["path"] == "hi.txt"
+        data = json.loads(format_result(result, 102400))
+        assert data["artifacts"][0]["path"] == "hi.txt"
+
+    def test_prepare_rejects_network_deps(self):
+        with pytest.raises(Exception, match="not allowed"):
+            prepare_script(
+                "# /// script\n# dependencies = ['requests']\n# ///\nprint(1)\n"
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not installed")
+    async def test_bwrap_no_share_net_flag(self):
+        from redup_mcp_python_runner.sandbox_linux import BubblewrapSandbox
+
+        sb = BubblewrapSandbox()
+        if not sb.is_available():
+            pytest.skip("bwrap unavailable")
+        wrapped = sb.wrap(
+            [sys.executable, "-c", "print(1)"],
+            Path("/tmp"),
+            extra_ro_binds=[Path(sys.executable).resolve().parent.parent],
+        )
+        assert "--unshare-all" in wrapped
+        assert "--share-net" not in wrapped

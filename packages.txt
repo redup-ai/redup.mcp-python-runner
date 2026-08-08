@@ -1,0 +1,14 @@
+# Preinstalled scientific / utility packages for the code-tools sandbox.
+# Installed at image build time only. Runtime install and network are disabled.
+# Do NOT add HTTP clients (requests, httpx, …) — the sandbox has no network.
+numpy
+pandas
+matplotlib
+scipy
+scikit-learn
+pillow
+sympy
+pyyaml
+polars
+pydantic
+rich

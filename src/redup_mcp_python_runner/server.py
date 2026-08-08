@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import ast
 import platform
 import shutil
 import subprocess
@@ -15,23 +15,17 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from redup_mcp_python_runner.config import ServerConfig
-from redup_mcp_python_runner.executor import execute
+from redup_mcp_python_runner.errors import ScriptMetadataError
+from redup_mcp_python_runner.executor import execute, resolve_runtime_python
 from redup_mcp_python_runner.metrics import tracked_work
-from redup_mcp_python_runner.output import format_result
+from redup_mcp_python_runner.output import ExecutionResult, format_result
+from redup_mcp_python_runner.packages import load_package_list
 from redup_mcp_python_runner.sandbox import get_sandbox
-from redup_mcp_python_runner.script import build_script, extract_metadata
+from redup_mcp_python_runner.script import extract_metadata, prepare_script
 
 _CodeArg = Annotated[
     str,
     Field(description="Python source code to run (or validate)."),
-]
-_DepsArg = Annotated[
-    list[str] | None,
-    Field(
-        default=None,
-        description='Optional pip deps, e.g. ["matplotlib>=3.8", "numpy"]. '
-        "Prefer PEP 723 # /// script blocks inside code when many deps.",
-    ),
 ]
 _TimeoutArg = Annotated[
     int,
@@ -41,40 +35,19 @@ _TimeoutArg = Annotated[
 
 @asynccontextmanager
 async def _lifespan(server: FastMCP):
-    """Server lifespan: initialize sandbox, optionally warm cache."""
+    """Server lifespan: initialize sandbox (no package downloads)."""
     config: ServerConfig = server._mcp_config  # type: ignore[attr-defined]
     sandbox = get_sandbox(config.sandbox_backend)
-
-    ctx = {
+    yield {
         "config": config,
         "sandbox": sandbox,
+        "runtime_python": resolve_runtime_python(config.runtime_python or None),
+        "packages": load_package_list(config.packages_file or None),
     }
-
-    # Warm cache in background (non-blocking)
-    if config.warm_cache:
-        from redup_mcp_python_runner.cache import warm_cache
-
-        asyncio.create_task(
-            warm_cache(uv_path=config.uv_path, python_version=config.python_version)
-        )
-
-    yield ctx
 
 
 def create_server(config: ServerConfig) -> FastMCP:
     """Create and configure the MCP server with all tools."""
-
-    # Verify uv is available
-    uv_path = shutil.which(config.uv_path) or config.uv_path
-    try:
-        result = subprocess.run([uv_path, "--version"], capture_output=True, text=True, timeout=5)
-        if result.returncode != 0:
-            raise RuntimeError("uv returned non-zero exit code")
-    except FileNotFoundError as err:
-        raise RuntimeError(
-            f"uv not found at '{config.uv_path}'. "
-            "Install uv: https://docs.astral.sh/uv/getting-started/installation/"
-        ) from err
 
     mcp = FastMCP(
         "redup-mcp-python-runner",
@@ -86,45 +59,62 @@ def create_server(config: ServerConfig) -> FastMCP:
         annotations={
             "readOnlyHint": False,
             "destructiveHint": True,
-            "openWorldHint": True,
+            "openWorldHint": False,
         }
     )
     async def execute_python(
         code: _CodeArg,
-        dependencies: _DepsArg = None,
         timeout: _TimeoutArg = config.default_timeout,
     ) -> str:
-        """Run Python code in an ephemeral sandbox (uv + optional deps).
+        """Run Python in an offline sandbox (no network, no package install).
 
-        Workspace files are discarded after the call — only stdout/stderr return.
-        To produce a binary (PNG/PDF/…), write it in-memory and print base64 on stdout
-        (or keep output small; large stdout may be truncated by the server).
+        Only preinstalled packages are available (see ``check_environment``).
+        Do not pass pip/uv/PEP 723 dependencies — they are rejected.
 
-        Args: ``code`` (required), ``timeout`` (seconds), ``dependencies`` (optional list).
+        To return a binary (PNG/PDF/…), write it under ``ARTIFACTS_DIR``
+        (env var in the process), e.g.::
+
+            from pathlib import Path
+            import os
+            Path(os.environ["ARTIFACTS_DIR"], "chart.png").write_bytes(png_bytes)
+
+        The tool returns JSON: stdout, stderr, exit_code, duration_ms, timed_out,
+        artifacts[{path, media_type, size, content_base64}].
+
+        Args: ``code`` (required), ``timeout`` (seconds).
         """
         async with tracked_work("execute_python"):
-            # Clamp timeout
             clamped = max(1, min(int(timeout), config.max_timeout))
+            try:
+                final_script = prepare_script(code)
+            except ScriptMetadataError as exc:
+                return format_result(
+                    ExecutionResult(
+                        stdout="",
+                        stderr=str(exc),
+                        exit_code=2,
+                        duration_ms=0,
+                        timed_out=False,
+                        artifacts=[],
+                    ),
+                    config.max_output_bytes,
+                )
 
-            # Build script with merged metadata
-            final_script = build_script(
-                code, extra_dependencies=dependencies, python_version=config.python_version
-            )
-
-            # Write to temp file and execute
             with tempfile.TemporaryDirectory(prefix="mcp-py-") as tmpdir:
-                script_path = Path(tmpdir) / "script.py"
+                work = Path(tmpdir)
+                script_path = work / "script.py"
                 script_path.write_text(final_script, encoding="utf-8")
+                (work / "artifacts").mkdir(exist_ok=True)
 
                 sandbox = get_sandbox(config.sandbox_backend)
-
                 result = await execute(
                     script_path=script_path,
-                    python_version=config.python_version,
                     timeout=clamped,
                     sandbox=sandbox,
                     max_output_bytes=config.max_output_bytes,
-                    uv_path=config.uv_path,
+                    runtime_python=config.runtime_python or None,
+                    max_artifact_bytes=config.max_artifact_bytes,
+                    max_artifacts_total_bytes=config.max_artifacts_total_bytes,
                 )
 
             return format_result(result, config.max_output_bytes)
@@ -137,37 +127,45 @@ def create_server(config: ServerConfig) -> FastMCP:
         }
     )
     async def check_environment() -> str:
-        """Check the execution environment and report status.
-
-        Returns information about Python version, uv version, platform,
-        sandbox configuration, and cache status.
-        """
+        """Report offline sandbox status and the preinstalled package allowlist."""
         async with tracked_work("check_environment"):
             sandbox = get_sandbox(config.sandbox_backend)
+            runtime = resolve_runtime_python(config.runtime_python or None)
+            packages = load_package_list(config.packages_file or None)
 
-            # Get uv version
-            try:
-                result = subprocess.run(
-                    [config.uv_path, "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                uv_version = result.stdout.strip()
-            except Exception:
-                uv_version = "unknown"
+            uv_version = "n/a (not used for execution)"
+            if shutil.which(config.uv_path):
+                try:
+                    result = subprocess.run(
+                        [config.uv_path, "--version"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if result.returncode == 0:
+                        uv_version = result.stdout.strip()
+                except Exception:
+                    pass
 
             lines = [
-                f"Python version: {config.python_version}",
-                f"uv: {uv_version}",
+                f"Python version (config): {config.python_version}",
+                f"Runtime interpreter: {runtime}",
+                f"uv (diagnostic only): {uv_version}",
                 f"Platform: {platform.system()} {platform.machine()}",
                 f"Sandbox backend: {config.sandbox_backend}",
                 f"Sandbox status: {sandbox.describe()}",
+                "Network: disabled (no package install, no egress in native sandbox)",
                 f"Default timeout: {config.default_timeout}s",
                 f"Max timeout: {config.max_timeout}s",
-                f"Max output: {config.max_output_bytes} bytes",
-                f"Cache warming: {'enabled' if config.warm_cache else 'disabled'}",
+                f"Max stdout/stderr: {config.max_output_bytes} bytes",
+                f"Max artifact file: {config.max_artifact_bytes} bytes",
+                "Preinstalled packages (import these only):",
             ]
+            for name in packages:
+                lines.append(f"  - {name}")
+            lines.append(
+                "Write binaries to ARTIFACTS_DIR; they return in JSON field artifacts[]."
+            )
             return "\n".join(lines)
 
     @mcp.tool(
@@ -179,49 +177,37 @@ def create_server(config: ServerConfig) -> FastMCP:
     )
     async def validate_code(
         code: _CodeArg,
-        dependencies: _DepsArg = None,
     ) -> str:
-        """Validate Python code metadata/deps without executing (PEP 723 / pip specs).
-
-        Same ``code`` / ``dependencies`` args as execute_python.
-        """
+        """Validate Python syntax and reject inline dependency metadata (offline policy)."""
         async with tracked_work("validate_code"):
-            issues: list[str] = []
-
-            # Try to parse existing metadata
             try:
-                extract_metadata(code)
+                meta = extract_metadata(code)
             except Exception as exc:
                 return f"INVALID: {exc}"
 
-            # Try to build merged script
-            try:
-                merged = build_script(
-                    code,
-                    extra_dependencies=dependencies,
-                    python_version=config.python_version,
-                )
-            except Exception as exc:
-                return f"INVALID: Failed to merge metadata: {exc}"
-
-            # Extract final metadata for reporting
-            final_meta = extract_metadata(merged)
-
-            lines = ["VALID"]
-            if final_meta.get("requires-python"):
-                lines.append(f"requires-python: {final_meta['requires-python']}")
-            deps = final_meta.get("dependencies", [])
+            deps = meta.get("dependencies") or []
             if deps:
-                lines.append(f"dependencies ({len(deps)}):")
-                for dep in deps:
-                    lines.append(f"  - {dep}")
-            else:
-                lines.append("dependencies: none")
-            if issues:
-                lines.append("warnings:")
-                for issue in issues:
-                    lines.append(f"  - {issue}")
+                return (
+                    "INVALID: inline dependencies are not allowed "
+                    f"(rejected: {deps}). Use preinstalled packages only."
+                )
 
+            try:
+                body = prepare_script(code)
+            except ScriptMetadataError as exc:
+                return f"INVALID: {exc}"
+
+            try:
+                ast.parse(body)
+            except SyntaxError as exc:
+                return f"INVALID: syntax error: {exc}"
+
+            packages = load_package_list(config.packages_file or None)
+            lines = [
+                "VALID",
+                "policy: offline sandbox (no runtime installs)",
+                f"preinstalled_packages ({len(packages)}): {', '.join(packages)}",
+            ]
             return "\n".join(lines)
 
     return mcp

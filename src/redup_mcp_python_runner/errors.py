@@ -10,7 +10,7 @@ class ScriptTimeoutError(ExecutorError):
 
 
 class PackageInstallError(ExecutorError):
-    """Failed to install one or more packages."""
+    """Raised when code attempts a forbidden runtime package install."""
 
 
 class SandboxError(ExecutorError):

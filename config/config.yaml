@@ -7,11 +7,17 @@ service:
   hpa_max_workers: 2
 
 McpPythonRunner:
-  sandbox_backend: none
+  # Prefer native (bwrap, no network). Use none only if user namespaces are unavailable.
+  sandbox_backend: native
   python_version: "3.13"
+  runtime_python: "/opt/code-tools-env/bin/python"
+  packages_file: "/config/packages.txt"
   default_timeout: 30
   max_timeout: 300
-  max_output_bytes: 102400
+  max_output_bytes: 1048576
+  max_artifact_bytes: 5242880
+  max_artifacts_total_bytes: 10485760
+  # Ignored — packages are build-time only.
   warm_cache: false
   uv_path: uv
   json_response: true

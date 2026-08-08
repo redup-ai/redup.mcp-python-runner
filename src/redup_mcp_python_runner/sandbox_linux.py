@@ -1,4 +1,4 @@
-"""Bubblewrap (bwrap) sandbox implementation for Linux."""
+"""Bubblewrap (bwrap) sandbox implementation for Linux — no network."""
 
 from __future__ import annotations
 
@@ -9,25 +9,27 @@ from redup_mcp_python_runner.sandbox import Sandbox
 
 
 class BubblewrapSandbox(Sandbox):
-    """Linux sandbox using bubblewrap (bwrap)."""
+    """Linux sandbox using bubblewrap (bwrap) without network access."""
 
     def __init__(self) -> None:
         self._bwrap_path = shutil.which("bwrap")
-        self._uv_cache_dir = Path.home() / ".cache" / "uv"
 
     def is_available(self) -> bool:
         return self._bwrap_path is not None
 
-    def wrap(self, cmd: list[str], script_path: Path) -> list[str]:
-        script_dir = str(script_path.parent)
-        cache_dir = str(self._uv_cache_dir)
+    def wrap(
+        self,
+        cmd: list[str],
+        script_path: Path,
+        extra_ro_binds: list[Path] | None = None,
+    ) -> list[str]:
+        script_dir = str(script_path.parent.resolve())
 
         bwrap_cmd = [
             self._bwrap_path or "bwrap",
             "--unshare-all",
-            "--share-net",
+            # Intentionally NO --share-net: offline sandbox.
             "--die-with-parent",
-            # Read-only system mounts
             "--ro-bind",
             "/usr",
             "/usr",
@@ -43,37 +45,40 @@ class BubblewrapSandbox(Sandbox):
             "--symlink",
             "/usr/lib64",
             "/lib64",
-            "--ro-bind",
-            "/etc/resolv.conf",
-            "/etc/resolv.conf",
-            "--ro-bind",
-            "/etc/ssl",
-            "/etc/ssl",
-            # Proc and dev
             "--proc",
             "/proc",
             "--dev",
             "/dev",
-            # Tmpfs for tmp
             "--tmpfs",
             "/tmp",
-            # Read-write mounts for uv cache and script dir
-            "--bind",
-            cache_dir,
-            cache_dir,
+            # Ephemeral workdir (script + artifacts) is writable.
             "--bind",
             script_dir,
             script_dir,
         ]
 
-        # If /lib64 exists as a real directory, bind it
         if Path("/lib64").is_dir() and not Path("/lib64").is_symlink():
             bwrap_cmd.extend(["--ro-bind", "/lib64", "/lib64"])
+
+        # Preinstalled interpreter / venv (e.g. /opt/code-tools-env).
+        seen: set[str] = set()
+        for path in extra_ro_binds or []:
+            resolved = str(path.resolve())
+            if resolved in seen or not Path(resolved).exists():
+                continue
+            seen.add(resolved)
+            bwrap_cmd.extend(["--ro-bind", resolved, resolved])
+
+        # Common locations for the dedicated env even if not passed explicitly.
+        for default_root in ("/opt/code-tools-env", "/usr/local"):
+            if default_root not in seen and Path(default_root).exists():
+                seen.add(default_root)
+                bwrap_cmd.extend(["--ro-bind", default_root, default_root])
 
         bwrap_cmd.extend(cmd)
         return bwrap_cmd
 
     def describe(self) -> str:
         if self._bwrap_path:
-            return f"bubblewrap ({self._bwrap_path})"
+            return f"bubblewrap offline ({self._bwrap_path}, no network)"
         return "bubblewrap (not found)"

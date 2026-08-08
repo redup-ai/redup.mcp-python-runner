@@ -1,11 +1,9 @@
-"""PEP 723 inline script metadata parsing, merging, and construction."""
+"""PEP 723 metadata parsing and offline script preparation."""
 
 from __future__ import annotations
 
 import re
 import tomllib
-
-import tomli_w
 
 from redup_mcp_python_runner.errors import ScriptMetadataError
 
@@ -23,7 +21,6 @@ def extract_metadata(script: str) -> dict:
         return {}
 
     raw = match.group(1)
-    # Remove leading "# " or "#" from each line
     lines = []
     for line in raw.splitlines():
         if line.startswith("# "):
@@ -45,68 +42,22 @@ def strip_metadata(script: str) -> str:
     return _METADATA_RE.sub("", script).lstrip("\n")
 
 
-def _format_metadata_block(metadata: dict) -> str:
-    """Format a metadata dict as a PEP 723 inline metadata block."""
-    toml_str = tomli_w.dumps(metadata)
-    lines = ["# /// script"]
-    for line in toml_str.rstrip("\n").splitlines():
-        lines.append(f"# {line}" if line else "#")
-    lines.append("# ///")
-    return "\n".join(lines) + "\n"
+def prepare_script(code: str) -> str:
+    """Prepare user code for offline execution.
 
-
-def _normalize_dep_name(dep: str) -> str:
-    """Extract the normalized package name from a PEP 508 dependency string.
-
-    Normalizes per PEP 503: lowercase, replace [-_.] runs with single dash.
+    Strips any PEP 723 metadata block. Raises if the block declares
+    ``dependencies`` — runtime installs are forbidden; only preinstalled
+    packages may be imported.
     """
-    # Extract name part before any version specifier or extras
-    name = re.split(r"[><=!~;\[\s]", dep, maxsplit=1)[0]
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def _deduplicate_deps(deps: list[str]) -> list[str]:
-    """Deduplicate dependencies, keeping the last occurrence of each name."""
-    seen: dict[str, str] = {}
-    for dep in deps:
-        key = _normalize_dep_name(dep)
-        seen[key] = dep
-    return list(seen.values())
-
-
-def build_script(
-    script_content: str,
-    extra_dependencies: list[str] | None = None,
-    python_version: str | None = None,
-) -> str:
-    """Build a script with merged PEP 723 metadata.
-
-    - If the script already has a metadata block, merges extra_dependencies
-      into the existing deps and updates requires-python if provided.
-    - If the script has no metadata and no extra deps/python_version,
-      returns the script unchanged.
-    - Otherwise creates a new metadata block.
-    """
-    existing_meta = extract_metadata(script_content)
-    body = strip_metadata(script_content) if existing_meta else script_content
-
-    has_extras = bool(extra_dependencies)
-    needs_python = python_version and "requires-python" not in existing_meta
-
-    # No metadata needed at all
-    if not existing_meta and not has_extras and not needs_python:
-        return script_content
-
-    # Build merged metadata
-    metadata = dict(existing_meta)
-
-    if needs_python and python_version:
-        metadata["requires-python"] = f">={python_version}"
-
-    if has_extras and extra_dependencies:
-        existing_deps = metadata.get("dependencies", [])
-        merged = existing_deps + list(extra_dependencies)
-        metadata["dependencies"] = _deduplicate_deps(merged)
-
-    block = _format_metadata_block(metadata)
-    return block + "\n" + body
+    meta = extract_metadata(code)
+    deps = meta.get("dependencies") or []
+    if deps:
+        raise ScriptMetadataError(
+            "Inline dependencies are not allowed in this sandbox. "
+            "Packages cannot be installed at runtime (no network). "
+            "Use only preinstalled packages from check_environment / packages list. "
+            f"Rejected dependencies: {deps}"
+        )
+    if meta:
+        return strip_metadata(code)
+    return code

@@ -1,8 +1,12 @@
-"""Output formatting and truncation utilities."""
+"""Output formatting, truncation, and artifact collection."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+import mimetypes
+from dataclasses import dataclass, field
+from pathlib import Path
+import base64
 
 
 @dataclass(frozen=True)
@@ -14,6 +18,7 @@ class ExecutionResult:
     exit_code: int
     duration_ms: int
     timed_out: bool
+    artifacts: list[dict] = field(default_factory=list)
 
 
 def truncate_output(text: str, max_bytes: int) -> str:
@@ -24,23 +29,83 @@ def truncate_output(text: str, max_bytes: int) -> str:
     marker = f"\n... [truncated at {max_bytes / 1024:.0f}KB]"
     marker_bytes = marker.encode("utf-8")
     cut = max_bytes - len(marker_bytes)
-    # Decode back, ignoring partial chars at the cut boundary
     truncated = encoded[:cut].decode("utf-8", errors="ignore")
     return truncated + marker
 
 
-def format_result(result: ExecutionResult, max_output_bytes: int) -> str:
-    """Format an ExecutionResult as a human-readable string."""
-    stdout = truncate_output(result.stdout, max_output_bytes)
-    stderr = truncate_output(result.stderr, max_output_bytes)
+def collect_artifacts(
+    artifacts_dir: Path,
+    *,
+    max_files: int = 16,
+    max_file_bytes: int = 5 * 1024 * 1024,
+    max_total_bytes: int = 10 * 1024 * 1024,
+) -> list[dict]:
+    """Collect files written under ARTIFACTS_DIR as base64 payloads."""
+    if not artifacts_dir.is_dir():
+        return []
 
-    parts: list[str] = []
-    if stdout:
-        parts.append(f"--- stdout ---\n{stdout}")
-    if stderr:
-        parts.append(f"--- stderr ---\n{stderr}")
-    parts.append(f"--- exit_code: {result.exit_code} ---")
-    parts.append(f"--- duration_ms: {result.duration_ms} ---")
-    if result.timed_out:
-        parts.append("--- timed_out: true ---")
-    return "\n".join(parts)
+    items: list[dict] = []
+    total = 0
+    paths = sorted(
+        p for p in artifacts_dir.rglob("*") if p.is_file() and not p.name.startswith(".")
+    )
+    for path in paths:
+        if len(items) >= max_files:
+            break
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size > max_file_bytes:
+            items.append(
+                {
+                    "path": str(path.relative_to(artifacts_dir)),
+                    "size": size,
+                    "error": f"file too large (max {max_file_bytes} bytes)",
+                }
+            )
+            continue
+        if total + size > max_total_bytes:
+            items.append(
+                {
+                    "path": str(path.relative_to(artifacts_dir)),
+                    "size": size,
+                    "error": f"artifacts total exceeds {max_total_bytes} bytes",
+                }
+            )
+            break
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            items.append(
+                {
+                    "path": str(path.relative_to(artifacts_dir)),
+                    "size": size,
+                    "error": str(exc),
+                }
+            )
+            continue
+        mime, _ = mimetypes.guess_type(path.name)
+        items.append(
+            {
+                "path": str(path.relative_to(artifacts_dir)),
+                "media_type": mime or "application/octet-stream",
+                "size": len(data),
+                "content_base64": base64.b64encode(data).decode("ascii"),
+            }
+        )
+        total += len(data)
+    return items
+
+
+def format_result(result: ExecutionResult, max_output_bytes: int) -> str:
+    """Format an ExecutionResult as a JSON object string (stable for agents)."""
+    payload = {
+        "stdout": truncate_output(result.stdout, max_output_bytes),
+        "stderr": truncate_output(result.stderr, max_output_bytes),
+        "exit_code": result.exit_code,
+        "duration_ms": result.duration_ms,
+        "timed_out": result.timed_out,
+        "artifacts": result.artifacts,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
