@@ -1,6 +1,7 @@
 """Tests for MCP server tool definitions."""
 
 import pytest
+from pydantic import ValidationError
 
 from redup_mcp_python_runner.config import ServerConfig
 from redup_mcp_python_runner.server import create_server
@@ -45,7 +46,7 @@ class TestCreateServer:
     @pytest.mark.asyncio
     async def test_execute_python_rejects_legacy_script_arg(self, server):
         tools = await server.get_tools()
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             await tools["execute_python"].run(
                 {"script": "print('legacy')", "timeout_seconds": 5}
             )
