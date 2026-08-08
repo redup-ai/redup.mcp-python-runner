@@ -154,8 +154,8 @@ def create_server(config: ServerConfig) -> FastMCP:
                 f"Platform: {platform.system()} {platform.machine()}",
                 f"Sandbox backend: {config.sandbox_backend}",
                 f"Sandbox status: {sandbox.describe()}",
-                "Network: child scripts use unshare --net --pid --fork --mount-proc; "
-                "pod NetworkPolicy should deny egress (defense in depth)",
+                "Network: child scripts use unshare --net; "
+                "pod NetworkPolicy must deny egress (blocks setns escape)",
                 f"Default timeout: {config.default_timeout}s",
                 f"Max timeout: {config.max_timeout}s",
                 f"Max stdout/stderr: {config.max_output_bytes} bytes",

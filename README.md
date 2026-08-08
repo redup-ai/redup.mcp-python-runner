@@ -12,9 +12,9 @@ MCP Streamable HTTP service for **offline** ephemeral Python execution.
 - Allowlisted packages are installed **only at image build time** into
   `/opt/code-tools-env` (see `packages.txt`).
 - **Offline execution** (`sandbox_backend: native`): each script runs under
-  `unshare --net --pid --fork --mount-proc` (empty netns + private `/proc`).
-  Requires **`CAP_SYS_ADMIN`**. Also deploy a **NetworkPolicy deny-egress** on
-  the pod (see helm `extraDeploy`) so CNI blocks egress even if netns is joined.
+  `unshare --net` (empty netns). Requires **`CAP_SYS_ADMIN`**. Deploy a
+  **NetworkPolicy deny-egress** on the pod (helm `extraDeploy`) so CNI blocks
+  egress even if a script joins the pod netns via `setns`.
 - Tool results are **JSON** (`stdout` / `stderr` / `exit_code` / `artifacts`),
   not a concatenated text dump.
 
