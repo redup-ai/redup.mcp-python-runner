@@ -40,7 +40,12 @@ class NoopSandbox(Sandbox):
     def is_available(self) -> bool:
         return True
 
-    def wrap(self, cmd: list[str], script_path: Path, extra_ro_binds: list | None = None) -> list[str]:
+    def wrap(
+        self,
+        cmd: list[str],
+        script_path: Path,
+        extra_ro_binds: list | None = None,
+    ) -> list[str]:
         return cmd
 
     def describe(self) -> str:
