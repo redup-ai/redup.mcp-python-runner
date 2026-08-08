@@ -9,8 +9,10 @@ import subprocess
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from fastmcp import FastMCP
+from pydantic import Field
 
 from redup_mcp_python_runner.config import ServerConfig
 from redup_mcp_python_runner.executor import execute
@@ -18,6 +20,23 @@ from redup_mcp_python_runner.metrics import tracked_work
 from redup_mcp_python_runner.output import format_result
 from redup_mcp_python_runner.sandbox import get_sandbox
 from redup_mcp_python_runner.script import build_script, extract_metadata
+
+_CodeArg = Annotated[
+    str,
+    Field(description="Python source code to run (or validate)."),
+]
+_DepsArg = Annotated[
+    list[str] | None,
+    Field(
+        default=None,
+        description='Optional pip deps, e.g. ["matplotlib>=3.8", "numpy"]. '
+        "Prefer PEP 723 # /// script blocks inside code when many deps.",
+    ),
+]
+_TimeoutArg = Annotated[
+    int,
+    Field(description="Max execution time in seconds (clamped to server max)."),
+]
 
 
 @asynccontextmanager
@@ -71,64 +90,25 @@ def create_server(config: ServerConfig) -> FastMCP:
         }
     )
     async def execute_python(
-        script: str,
-        dependencies: list[str] | None = None,
-        timeout_seconds: int = config.default_timeout,
+        code: _CodeArg,
+        dependencies: _DepsArg = None,
+        timeout: _TimeoutArg = config.default_timeout,
     ) -> str:
-        """Execute a Python script with automatic dependency management.
+        """Run Python code in an ephemeral sandbox (uv + optional deps).
 
-        The script can include PEP 723 inline metadata (# /// script blocks)
-        for declaring dependencies. Additional dependencies can also be passed
-        via the dependencies parameter and will be merged.
+        Workspace files are discarded after the call — only stdout/stderr return.
+        To produce a binary (PNG/PDF/…), write it in-memory and print base64 on stdout
+        (or keep output small; large stdout may be truncated by the server).
 
-        Args:
-            script: Python source code to execute. May include PEP 723 metadata.
-            dependencies: Extra PEP 508 dependency specifiers to make available.
-            timeout_seconds: Maximum execution time (1-300, default 30).
-
-        Returns:
-            Formatted output with stdout, stderr, exit code, and duration.
-
-        Example - simple script:
-
-            execute_python(script="print('hello')")
-
-        Example - with dependencies parameter:
-
-            execute_python(
-                script="import requests; print(requests.get('https://example.com').status_code)",
-                dependencies=["requests>=2.32"]
-            )
-
-        Example - with inline dependency metadata (preferred for multiple deps):
-
-            execute_python(script='''
-            # /// script
-            # dependencies = ["pandas>=2.2", "numpy>=1.26"]
-            # ///
-
-            import pandas as pd
-            import numpy as np
-            print(pd.DataFrame({"a": np.arange(5)}).describe())
-            ''')
-
-        Always pin dependency versions (e.g. "pandas>=2.2" instead of "pandas") for
-        reproducible results.
-
-        The inline metadata block (# /// script ... # ///) is the recommended way to
-        declare dependencies directly in the script (see PEP 723:
-        https://peps.python.org/pep-0723/). The dependencies parameter is a simpler
-        alternative when you just need to add a few packages. Both accept standard
-        pip-style version specifiers like "requests>=2.28" or "pandas" (see PEP 508:
-        https://peps.python.org/pep-0508/).
+        Args: ``code`` (required), ``timeout`` (seconds), ``dependencies`` (optional list).
         """
         async with tracked_work("execute_python"):
             # Clamp timeout
-            timeout = max(1, min(timeout_seconds, config.max_timeout))
+            clamped = max(1, min(int(timeout), config.max_timeout))
 
             # Build script with merged metadata
             final_script = build_script(
-                script, extra_dependencies=dependencies, python_version=config.python_version
+                code, extra_dependencies=dependencies, python_version=config.python_version
             )
 
             # Write to temp file and execute
@@ -141,7 +121,7 @@ def create_server(config: ServerConfig) -> FastMCP:
                 result = await execute(
                     script_path=script_path,
                     python_version=config.python_version,
-                    timeout=timeout,
+                    timeout=clamped,
                     sandbox=sandbox,
                     max_output_bytes=config.max_output_bytes,
                     uv_path=config.uv_path,
@@ -197,36 +177,27 @@ def create_server(config: ServerConfig) -> FastMCP:
             "openWorldHint": False,
         }
     )
-    async def validate_script(
-        script: str,
-        dependencies: list[str] | None = None,
+    async def validate_code(
+        code: _CodeArg,
+        dependencies: _DepsArg = None,
     ) -> str:
-        """Validate a Python script's PEP 723 metadata and dependencies without executing it.
+        """Validate Python code metadata/deps without executing (PEP 723 / pip specs).
 
-        Checks metadata syntax, dependency format, and requires-python compatibility.
-
-        Args:
-            script: Python source code to validate. May include inline dependency
-                metadata (# /// script blocks, see https://peps.python.org/pep-0723/).
-            dependencies: Extra dependency specifiers to validate, using standard
-                pip-style format like "requests>=2.28" (see https://peps.python.org/pep-0508/).
-
-        Returns:
-            Validation result with metadata details or error information.
+        Same ``code`` / ``dependencies`` args as execute_python.
         """
-        async with tracked_work("validate_script"):
+        async with tracked_work("validate_code"):
             issues: list[str] = []
 
             # Try to parse existing metadata
             try:
-                extract_metadata(script)
+                extract_metadata(code)
             except Exception as exc:
                 return f"INVALID: {exc}"
 
             # Try to build merged script
             try:
                 merged = build_script(
-                    script,
+                    code,
                     extra_dependencies=dependencies,
                     python_version=config.python_version,
                 )

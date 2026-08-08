@@ -7,9 +7,15 @@ MCP Streamable HTTP service for ephemeral Python execution. Scripts run with
 inline dependencies ([PEP 723](https://peps.python.org/pep-0723/)) via
 [`uv`](https://docs.astral.sh/uv/).
 
-Contract: MCP tools `execute_python`, `check_environment`, `validate_script`.
+Contract: MCP tools `execute_python`, `check_environment`, `validate_code`.
 Endpoint: `POST http://<host>:8000/mcp` (stateless Streamable HTTP, JSON).
 Metrics: `GET http://<host>:9999/metrics` (Prometheus via `redup-servicekit`).
+
+**Tool args:** `execute_python` / `validate_code` take **`code`** (required);
+`execute_python` also takes **`timeout`** (seconds). Optional `dependencies: string[]`.
+No legacy aliases (`script` / `timeout_seconds` / `validate_script` removed).
+Workspace is ephemeral — only stdout/stderr return; binaries must be printed as
+base64 on stdout.
 
 ## Configuration
 
