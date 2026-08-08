@@ -121,17 +121,12 @@ class TestRealExecution:
             )
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not installed")
-    async def test_bwrap_no_share_net_flag(self):
-        from redup_mcp_python_runner.sandbox_linux import BubblewrapSandbox
+    @pytest.mark.skipif(shutil.which("unshare") is None, reason="unshare not installed")
+    async def test_unshare_net_wrap_flag(self):
+        from redup_mcp_python_runner.sandbox_linux import UnshareNetSandbox
 
-        sb = BubblewrapSandbox()
+        sb = UnshareNetSandbox()
         if not sb.is_available():
-            pytest.skip("bwrap unavailable")
-        wrapped = sb.wrap(
-            [sys.executable, "-c", "print(1)"],
-            Path("/tmp"),
-            extra_ro_binds=[Path(sys.executable).resolve().parent.parent],
-        )
-        assert "--unshare-all" in wrapped
-        assert "--share-net" not in wrapped
+            pytest.skip("unshare unavailable")
+        wrapped = sb.wrap([sys.executable, "-c", "print(1)"], Path("/tmp"))
+        assert wrapped[:3] == [sb._unshare_path, "--net", "--"]

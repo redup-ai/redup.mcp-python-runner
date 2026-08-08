@@ -34,7 +34,7 @@ class TestGetSandbox:
             get_sandbox("invalid")
 
     @patch("sys.platform", "linux")
-    def test_native_linux_fallback_when_bwrap_missing(self):
+    def test_native_linux_fallback_when_unshare_missing(self):
         with patch("shutil.which", return_value=None):
             sb = get_sandbox("native")
             assert isinstance(sb, NoopSandbox)
@@ -45,22 +45,15 @@ class TestGetSandbox:
         assert isinstance(sb, NoopSandbox)
 
 
-class TestBubblewrapSandbox:
+class TestUnshareNetSandbox:
     @pytest.mark.skipif(sys.platform != "linux", reason="Linux only")
     def test_wrap_command_offline(self):
-        from redup_mcp_python_runner.sandbox_linux import BubblewrapSandbox
+        from redup_mcp_python_runner.sandbox_linux import UnshareNetSandbox
 
-        with patch("shutil.which", return_value="/usr/bin/bwrap"):
-            sb = BubblewrapSandbox()
+        with patch("shutil.which", return_value="/usr/bin/unshare"):
+            sb = UnshareNetSandbox()
             cmd = ["/opt/code-tools-env/bin/python", "/tmp/test.py"]
-            wrapped = sb.wrap(
-                cmd,
-                Path("/tmp/test.py"),
-                extra_ro_binds=[Path("/opt/code-tools-env")],
-            )
-            assert wrapped[0] == "/usr/bin/bwrap"
-            assert "--unshare-all" in wrapped
-            assert "--share-net" not in wrapped
-            assert "/etc/resolv.conf" not in wrapped
-            assert "--die-with-parent" in wrapped
-            assert wrapped[-2:] == cmd
+            wrapped = sb.wrap(cmd, Path("/tmp/test.py"))
+            assert wrapped[:3] == ["/usr/bin/unshare", "--net", "--"]
+            assert wrapped[3:] == cmd
+            assert "no egress" in sb.describe() or "unshare" in sb.describe()

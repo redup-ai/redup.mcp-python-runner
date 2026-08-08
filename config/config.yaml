@@ -7,7 +7,8 @@ service:
   hpa_max_workers: 2
 
 McpPythonRunner:
-  # Prefer native (bwrap, no network). Use none only if user namespaces are unavailable.
+  # native = unshare --net (empty netns, no egress). Needs CAP_SYS_ADMIN.
+  # none = no process isolation (still no runtime package installs).
   sandbox_backend: native
   python_version: "3.13"
   runtime_python: "/opt/code-tools-env/bin/python"
@@ -17,7 +18,6 @@ McpPythonRunner:
   max_output_bytes: 1048576
   max_artifact_bytes: 5242880
   max_artifacts_total_bytes: 10485760
-  # Ignored — packages are build-time only.
   warm_cache: false
   uv_path: uv
   json_response: true

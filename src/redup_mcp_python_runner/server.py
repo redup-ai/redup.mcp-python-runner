@@ -154,7 +154,8 @@ def create_server(config: ServerConfig) -> FastMCP:
                 f"Platform: {platform.system()} {platform.machine()}",
                 f"Sandbox backend: {config.sandbox_backend}",
                 f"Sandbox status: {sandbox.describe()}",
-                "Network: disabled (no package install, no egress in native sandbox)",
+                "Network: child scripts run in empty netns via unshare --net "
+                "(requires CAP_SYS_ADMIN; MCP server process keeps listening)",
                 f"Default timeout: {config.default_timeout}s",
                 f"Max timeout: {config.max_timeout}s",
                 f"Max stdout/stderr: {config.max_output_bytes} bytes",

@@ -7,13 +7,33 @@ MCP Streamable HTTP service for **offline** ephemeral Python execution.
 
 ## Security model
 
-- **No network** in the native (bubblewrap) sandbox — no `--share-net`.
 - **No runtime package installs** — no `uv run --script` dependency resolution,
   no `dependencies` tool arg, PEP 723 `dependencies = [...]` is **rejected**.
 - Allowlisted packages are installed **only at image build time** into
   `/opt/code-tools-env` (see `packages.txt`).
+- **Offline execution** (`sandbox_backend: native`): each script runs under
+  `unshare --net` (empty network namespace → no egress). Requires
+  **`CAP_SYS_ADMIN`** on the container (not full `--privileged`).
 - Tool results are **JSON** (`stdout` / `stderr` / `exit_code` / `artifacts`),
   not a concatenated text dump.
+
+### Docker run (local)
+
+```bash
+docker run --rm -p 8000:8000 -p 9999:9999 \
+  --cap-add SYS_ADMIN \
+  mcp-python:test
+```
+
+`CAP_SYS_ADMIN` is enough for `unshare --net`. Full bubblewrap `--unshare-all`
+would need `--privileged` on most hosts — we intentionally use `unshare --net`
+instead.
+
+### Kubernetes
+
+Chart sets `deployment.securityContext.capabilities.add: [SYS_ADMIN, …]` and
+`sandbox_backend: native`. Also add a **NetworkPolicy deny-egress** on the
+code-tools pods as defense in depth.
 
 Contract: MCP tools `execute_python`, `check_environment`, `validate_code`.
 Endpoint: `POST http://<host>:8000/mcp` (stateless Streamable HTTP, JSON).
@@ -41,7 +61,7 @@ service:
   hpa_max_workers: 2
 
 McpPythonRunner:
-  sandbox_backend: native        # bubblewrap, no network; or none
+  sandbox_backend: native        # unshare --net; needs CAP_SYS_ADMIN
   python_version: "3.13"
   runtime_python: "/opt/code-tools-env/bin/python"
   packages_file: "/config/packages.txt"
@@ -62,9 +82,10 @@ export McpPythonRunner___runtime_python=/opt/code-tools-env/bin/python
 export service___port=8000
 ```
 
-`McpPythonRunner.sandbox_backend=native` needs bubblewrap and unprivileged user
-namespaces. If unavailable, set `none` (isolation = container only; still no
-runtime installs).
+`sandbox_backend=native` needs `CAP_SYS_ADMIN` (see Docker run / Helm
+`securityContext` above). If the capability is missing, `unshare --net` fails
+and tool calls return a non-zero exit — fix the securityContext, do not silently
+fall back to networked execution.
 
 ## Run with Docker
 

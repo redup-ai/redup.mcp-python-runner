@@ -51,7 +51,7 @@ def get_sandbox(backend: str) -> Sandbox:
     """Create a sandbox instance for the given backend.
 
     Falls back to NoopSandbox with a warning if the requested backend
-    is not available. Supported backends: ``native`` (bubblewrap, Linux),
+    is not available. Supported backends: ``native`` (unshare --net, Linux),
     ``none``.
     """
     if backend == "none":
@@ -65,11 +65,11 @@ def get_sandbox(backend: str) -> Sandbox:
             )
             return NoopSandbox()
 
-        from redup_mcp_python_runner.sandbox_linux import BubblewrapSandbox
+        from redup_mcp_python_runner.sandbox_linux import UnshareNetSandbox
 
-        sb = BubblewrapSandbox()
+        sb = UnshareNetSandbox()
         if not sb.is_available():
-            logger.warning("bwrap not found, falling back to no sandbox")
+            logger.warning("unshare not found, falling back to no sandbox")
             return NoopSandbox()
         return sb
 

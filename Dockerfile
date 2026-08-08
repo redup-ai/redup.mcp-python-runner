@@ -25,7 +25,7 @@ RUN --mount=type=secret,id=PIP_INDEX_URL,required=false \
 FROM ${BASE_IMAGE}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      bubblewrap \
+      util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # uv is not required at runtime; keep only for optional diagnostics if present.
