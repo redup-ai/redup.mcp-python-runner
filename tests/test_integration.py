@@ -129,4 +129,11 @@ class TestRealExecution:
         if not sb.is_available():
             pytest.skip("unshare unavailable")
         wrapped = sb.wrap([sys.executable, "-c", "print(1)"], Path("/tmp"))
-        assert wrapped[:3] == [sb._unshare_path, "--net", "--"]
+        assert wrapped[:6] == [
+            sb._unshare_path,
+            "--net",
+            "--pid",
+            "--fork",
+            "--mount-proc",
+            "--",
+        ]

@@ -54,6 +54,13 @@ class TestUnshareNetSandbox:
             sb = UnshareNetSandbox()
             cmd = ["/opt/code-tools-env/bin/python", "/tmp/test.py"]
             wrapped = sb.wrap(cmd, Path("/tmp/test.py"))
-            assert wrapped[:3] == ["/usr/bin/unshare", "--net", "--"]
-            assert wrapped[3:] == cmd
-            assert "no egress" in sb.describe() or "unshare" in sb.describe()
+            assert wrapped[:6] == [
+                "/usr/bin/unshare",
+                "--net",
+                "--pid",
+                "--fork",
+                "--mount-proc",
+                "--",
+            ]
+            assert wrapped[6:] == cmd
+            assert "unshare" in sb.describe()

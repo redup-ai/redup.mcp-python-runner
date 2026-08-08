@@ -1,13 +1,11 @@
-"""Offline native sandbox for Linux via ``unshare --net``.
+"""Offline native sandbox for Linux via ``unshare --net --pid``.
 
-Bubblewrap ``--unshare-all`` needs a full privileged container (user namespaces +
-proc mounts). In typical Docker/Kubernetes the reliable offline primitive is:
+Creates an empty network namespace (no egress) and a new PID namespace with a
+fresh ``/proc`` so scripts cannot ``setns(/proc/1/ns/net)`` into the MCP
+server's network namespace.
 
-    unshare --net -- <command>
-
-which requires ``CAP_SYS_ADMIN`` and puts the child in an empty network
-namespace (no routes → no egress). The MCP HTTP server process itself is not
-wrapped and keeps serving traffic.
+Requires ``CAP_SYS_ADMIN``. Pair with a pod NetworkPolicy deny-egress so even a
+future escape still cannot leave the cluster/internet.
 """
 
 from __future__ import annotations
@@ -19,7 +17,7 @@ from redup_mcp_python_runner.sandbox import Sandbox
 
 
 class UnshareNetSandbox(Sandbox):
-    """Isolate script execution in an empty network namespace (no egress)."""
+    """Isolate script execution in empty netns + private pid/proc."""
 
     def __init__(self) -> None:
         self._unshare_path = shutil.which("unshare")
@@ -35,15 +33,25 @@ class UnshareNetSandbox(Sandbox):
     ) -> list[str]:
         del script_path, extra_ro_binds  # FS isolation is the container layer
         unshare = self._unshare_path or "unshare"
-        # --net: new empty network namespace (blocks egress).
+        # --net: empty network namespace (no routes / no egress).
+        # --pid --fork --mount-proc: private PID namespace so /proc/1 is this
+        # child, not the MCP server (blocks setns netns escape).
         # Trailing -- so flags in cmd cannot be parsed by unshare.
-        return [unshare, "--net", "--", *cmd]
+        return [
+            unshare,
+            "--net",
+            "--pid",
+            "--fork",
+            "--mount-proc",
+            "--",
+            *cmd,
+        ]
 
     def describe(self) -> str:
         if self._unshare_path:
             return (
-                f"unshare --net ({self._unshare_path}); "
-                "empty netns, no egress (needs CAP_SYS_ADMIN)"
+                f"unshare --net --pid --fork --mount-proc ({self._unshare_path}); "
+                "empty netns + private /proc (needs CAP_SYS_ADMIN)"
             )
         return "unshare (not found)"
 
