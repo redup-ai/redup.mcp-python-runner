@@ -18,6 +18,9 @@ McpPythonRunner:
   max_output_bytes: 1048576
   max_artifact_bytes: 5242880
   max_artifacts_total_bytes: 10485760
+  max_input_file_bytes: 5242880
+  max_inputs_total_bytes: 10485760
+  max_input_files: 16
   warm_cache: false
   uv_path: uv
   json_response: true

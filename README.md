@@ -40,13 +40,20 @@ Contract: MCP tools `execute_python`, `check_environment`, `validate_code`.
 Endpoint: `POST http://<host>:8000/mcp` (stateless Streamable HTTP, JSON).
 Metrics: `GET http://<host>:9999/metrics` (Prometheus via `redup-servicekit`).
 
-**Tool args:** `execute_python` / `validate_code` take **`code`** (required);
-`execute_python` also takes **`timeout`** (seconds). There is **no**
-`dependencies` argument.
+**Tool args:** `execute_python` takes **`code`** (required), **`timeout`**,
+and optional **`files`**: `[{path, content_base64}, …]` written under
+`INPUTS_DIR` for that call only. `validate_code` takes **`code`**. There is
+**no** `dependencies` argument.
 
-**Binaries:** write files under `ARTIFACTS_DIR` (set in the process env). They
-are returned in the JSON `artifacts[]` field as `content_base64`. Do not paste
-raw tool transcripts into `create_file`.
+**Input files:** relative `path` under `INPUTS_DIR` + `content_base64`. Hosts
+may populate `content_base64`. Example (client supplies bytes)::
+
+    files=[{"path": "data.zip", "content_base64": "<base64>"}]
+    # in code:
+    Path(os.environ["INPUTS_DIR"], "data.zip").read_bytes()
+
+**Output binaries:** write files under `ARTIFACTS_DIR` (set in the process env).
+They are returned in the JSON `artifacts[]` field as `content_base64`.
 
 ## Configuration
 

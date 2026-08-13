@@ -44,9 +44,63 @@ class TestCreateServer:
         props = tools["execute_python"].parameters["properties"]
         assert "code" in props
         assert "timeout" in props
+        assert "files" in props
         assert "dependencies" not in props
         assert "script" not in props
         assert tools["execute_python"].parameters["required"] == ["code"]
+
+    @pytest.mark.asyncio
+    async def test_execute_python_with_input_file(self, server):
+        import base64
+
+        tools = await server.get_tools()
+        code = (
+            "from pathlib import Path\n"
+            "import os\n"
+            "p = Path(os.environ['INPUTS_DIR']) / 'hi.txt'\n"
+            "print(p.read_text())\n"
+        )
+        out = await tools["execute_python"].run(
+            {
+                "code": code,
+                "timeout": 10,
+                "files": [
+                    {
+                        "path": "hi.txt",
+                        "content_base64": base64.b64encode(b"hello-in").decode(),
+                    }
+                ],
+            }
+        )
+        data = json.loads(_tool_text(out))
+        assert data["exit_code"] == 0
+        assert "hello-in" in data["stdout"]
+
+    @pytest.mark.asyncio
+    async def test_execute_python_rejects_bad_file_path(self, server):
+        tools = await server.get_tools()
+        out = await tools["execute_python"].run(
+            {
+                "code": "print(1)",
+                "timeout": 5,
+                "files": [{"path": "../x", "content_base64": "YQ=="}],
+            }
+        )
+        data = json.loads(_tool_text(out))
+        assert data["exit_code"] == 2
+        assert ".." in data["stderr"] or "relative" in data["stderr"].lower()
+
+    @pytest.mark.asyncio
+    async def test_docstring_has_no_agent_fs_jargon(self, server):
+        tools = await server.get_tools()
+        desc = (tools["execute_python"].description or "").lower()
+        assert "from_path" not in desc
+        assert "/tool-results" not in desc
+        assert "jq" not in desc
+        assert "sharelatex" not in desc
+        assert "web-parser" not in desc
+        assert "inputs_dir" in desc
+        assert "content_base64" in desc
 
     @pytest.mark.asyncio
     async def test_execute_python_rejects_legacy_script_arg(self, server):

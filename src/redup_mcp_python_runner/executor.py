@@ -31,6 +31,7 @@ def _build_clean_env(
     *,
     artifacts_dir: Path,
     work_dir: Path,
+    inputs_dir: Path | None = None,
 ) -> dict[str, str]:
     """Build a clean environment: no secrets, no proxy, no pip/uv network hints."""
     env: dict[str, str] = {}
@@ -43,6 +44,8 @@ def _build_clean_env(
     env["PYTHONNOUSERSITE"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["ARTIFACTS_DIR"] = str(artifacts_dir)
+    inputs = inputs_dir if inputs_dir is not None else (work_dir / "inputs")
+    env["INPUTS_DIR"] = str(inputs)
     env["HOME"] = str(work_dir)
     env["TMPDIR"] = str(work_dir / "tmp")
     # Explicitly disable common proxy / index overrides if present in parent.
@@ -78,7 +81,9 @@ async def execute(
     resolved_path = script_path.resolve()
     work_dir = resolved_path.parent
     artifacts_dir = work_dir / "artifacts"
+    inputs_dir = work_dir / "inputs"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
+    inputs_dir.mkdir(parents=True, exist_ok=True)
     (work_dir / "tmp").mkdir(parents=True, exist_ok=True)
 
     python_bin = resolve_runtime_python(runtime_python)
@@ -101,7 +106,11 @@ async def execute(
                 # Older / Noop wrap(cmd, script_path) signature
                 cmd = wrap(cmd, resolved_path)
 
-    env = _build_clean_env(artifacts_dir=artifacts_dir, work_dir=work_dir)
+    env = _build_clean_env(
+        artifacts_dir=artifacts_dir,
+        work_dir=work_dir,
+        inputs_dir=inputs_dir,
+    )
     start = time.monotonic()
     timed_out = False
 

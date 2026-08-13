@@ -26,6 +26,10 @@ class ServerConfig:
     max_output_bytes: int = 1_048_576  # 1MB text streams
     max_artifact_bytes: int = 5 * 1024 * 1024
     max_artifacts_total_bytes: int = 10 * 1024 * 1024
+    # Input files[] (execute_python); defaults align with artifact caps.
+    max_input_file_bytes: int = 5 * 1024 * 1024
+    max_inputs_total_bytes: int = 10 * 1024 * 1024
+    max_input_files: int = 16
     # Absolute path to preinstalled interpreter (Docker: /opt/code-tools-env/bin/python).
     runtime_python: str = ""
     packages_file: str = ""
@@ -57,6 +61,12 @@ class ServerConfig:
             raise ValueError("max_artifact_bytes must be >= 1024")
         if self.max_artifacts_total_bytes < self.max_artifact_bytes:
             raise ValueError("max_artifacts_total_bytes must be >= max_artifact_bytes")
+        if self.max_input_file_bytes < 1024:
+            raise ValueError("max_input_file_bytes must be >= 1024")
+        if self.max_inputs_total_bytes < self.max_input_file_bytes:
+            raise ValueError("max_inputs_total_bytes must be >= max_input_file_bytes")
+        if self.max_input_files < 1:
+            raise ValueError("max_input_files must be >= 1")
         if self.port < 1 or self.port > 65535:
             raise ValueError("port must be between 1 and 65535")
         if not self.path.startswith("/"):
@@ -67,16 +77,25 @@ class ServerConfig:
         """Build from a servicekit YAML dict (`service` + `McpPythonRunner`)."""
         service = config.get("service") or {}
         runner = config.get("McpPythonRunner") or {}
+        max_artifact = int(runner.get("max_artifact_bytes", 5 * 1024 * 1024))
+        max_artifacts_total = int(
+            runner.get("max_artifacts_total_bytes", 10 * 1024 * 1024)
+        )
         return cls(
             python_version=str(runner.get("python_version", "3.13")),
             sandbox_backend=str(runner.get("sandbox_backend", "none")),
             max_timeout=int(runner.get("max_timeout", 300)),
             default_timeout=int(runner.get("default_timeout", 30)),
             max_output_bytes=int(runner.get("max_output_bytes", 1_048_576)),
-            max_artifact_bytes=int(runner.get("max_artifact_bytes", 5 * 1024 * 1024)),
-            max_artifacts_total_bytes=int(
-                runner.get("max_artifacts_total_bytes", 10 * 1024 * 1024)
+            max_artifact_bytes=max_artifact,
+            max_artifacts_total_bytes=max_artifacts_total,
+            max_input_file_bytes=int(
+                runner.get("max_input_file_bytes", max_artifact)
             ),
+            max_inputs_total_bytes=int(
+                runner.get("max_inputs_total_bytes", max_artifacts_total)
+            ),
+            max_input_files=int(runner.get("max_input_files", 16)),
             runtime_python=str(runner.get("runtime_python", "") or ""),
             packages_file=str(runner.get("packages_file", "") or ""),
             warm_cache=_as_bool(runner.get("warm_cache"), False),

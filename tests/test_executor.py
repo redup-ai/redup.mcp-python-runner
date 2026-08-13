@@ -19,6 +19,7 @@ class TestBuildCleanEnv:
             assert "SECRET_KEY" not in env
             assert "HTTP_PROXY" not in env
             assert env["ARTIFACTS_DIR"] == str(tmp_path / "a")
+            assert env["INPUTS_DIR"] == str(tmp_path / "inputs")
             assert env["PYTHONNOUSERSITE"] == "1"
 
 

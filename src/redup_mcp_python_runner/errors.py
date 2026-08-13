@@ -19,3 +19,7 @@ class SandboxError(ExecutorError):
 
 class ScriptMetadataError(ExecutorError):
     """Invalid or malformed PEP 723 script metadata."""
+
+
+class InputFilesError(ExecutorError):
+    """Invalid execute_python ``files`` payload (path / size / base64)."""
